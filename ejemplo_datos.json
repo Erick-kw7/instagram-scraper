@@ -1,0 +1,37 @@
+{
+    "usuario": "usuario_ejemplo",
+    "fuente": "playwright (perfil cargado en navegador real)",
+    "extraido_el": "2026-01-01T12:00:00+00:00",
+    "nombre_completo": "Nombre Ficticio",
+    "biografia": "Texto de biografía de ejemplo\nSegunda línea de ejemplo",
+    "seguidores": 1234,
+    "seguidos": 567,
+    "total_publicaciones": 3,
+    "publicaciones_extraidas": [
+        {
+            "tipo": "publicacion",
+            "shortcode": "AAAAAAAAAAA",
+            "url": "https://www.instagram.com/usuario_ejemplo/p/AAAAAAAAAAA/",
+            "texto_alt": "Texto de ejemplo de la publicación 1"
+        },
+        {
+            "tipo": "reel",
+            "shortcode": "BBBBBBBBBBB",
+            "url": "https://www.instagram.com/usuario_ejemplo/reel/BBBBBBBBBBB/",
+            "texto_alt": ""
+        },
+        {
+            "tipo": "publicacion",
+            "shortcode": "CCCCCCCCCCC",
+            "url": "https://www.instagram.com/usuario_ejemplo/p/CCCCCCCCCCC/",
+            "texto_alt": "Texto de ejemplo de la publicación 3"
+        }
+    ],
+    "_conteos_og": {
+        "seguidores": 1234,
+        "seguidos": 600,
+        "total_publicaciones": 3
+    },
+    "_og_description": "1,234 Followers, 600 Following, 3 Posts - Ver fotos y videos de Instagram de Nombre Ficticio (@usuario_ejemplo)",
+    "_texto_cabecera": "usuario_ejemplo\nNombre Ficticio\n3 publicaciones\n1.234 seguidores\n567 seguidos\nTexto de biografía de ejemplo\nSegunda línea de ejemplo"
+}
