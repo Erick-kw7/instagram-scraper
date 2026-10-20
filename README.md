@@ -1,137 +1,182 @@
-# Instagram Profile Scraper con Playwright
+# Instagram Profile Scraper con Playwright & Panel de Control
 
-Proyecto académico — Arquitectura de Software, 7.º semestre, Ingeniería en Sistemas, Universidad Central del Ecuador.
+> **Proyecto Académico — Arquitectura de Software**  
+> **Carrera de Ingeniería en Sistemas | 7.º Semestre**  
+> **Universidad Central del Ecuador (UCE)**  
+> **Autor:** Erick Simbaña  
+> **Cuenta objetivo de la consigna:** `@sausage_player`
 
-Este proyecto explora Playwright con Python para leer el contenido que muestra la página pública de un perfil de Instagram (la cuenta asignada en la consigna, @sausage_player) y guardarlo en JSON.
+Este proyecto explora la ingeniería inversa y automatización con **Playwright** en Python para auditar, extraer y estructurar en JSON el contenido de perfiles de Instagram, implementando además un **Panel de Control Web Interactivo** local para la monitorización en tiempo real.
 
-> **Los resultados son una captura tomada en una fecha concreta, no datos en tiempo real.**
-> Una respuesta HTTP 429 indica que el servidor limitó la solicitud; por sí sola no permite determinar la causa.
+---
+
+## Evolución del Proyecto: Versión Inicial vs. Versión Final
+
+Para fines de evaluación en la materia de **Arquitectura de Software**, se documenta la progresión experimental desde las primeras pruebas limitadas hasta la arquitectura final consolidada:
+
+| Criterio / Métrica | Versión Inicial (Pruebas Previas) | Versión Final (Arquitectura Actual) |
+|---|---|---|
+| **Método de Acceso** | Sin sesión o con login manual en formulario (generaba reCAPTCHAs y bloqueos HTTP 429). | **Inyección de Cookies en `.env`** (`sessionid`, `ds_user_id`, `csrftoken`), emulando una sesión humana legítima sin captchas ni bloqueos. |
+| **Límite de Posts** | Limitado por Instagram a 12 o 24 posts en modo anónimo. | **100% de las publicaciones** (50 de 50 en la cuenta asignada `@sausage_player`), recorridas una a una. |
+| **Descarga Multimedia** | Ninguna (solo se guardaba el texto alternativo `alt`). | **Descarga completa a disco**: fotos en alta resolución (`.jpg`), carruseles y reels/videos nativos (`.mp4`) en `descargas_<usuario>/`. |
+| **Manejo de Videos / Reels** | No soportado; bloqueado por flujos en memoria `blob:https://...`. | **Superación de blobs**: inspección de componentes React (`__reactFiber`) para extraer el manifiesto MPEG-DASH `<BaseURL>` y descargar el video real. |
+| **Reacciones (Likes)** | No disponible en la versión inicial. | **Conteo exacto y detección de Likes Ocultos** (`likes_ocultos: true`, `likes: null`) cuando el autor los oculta. |
+| **Comentarios** | No disponible en la versión inicial. | **Conteo real y oficial** (`Ver los X comentarios`), filtrando respuestas legítimas y descartando el pie de foto del autor y dots de carrusel. |
+| **Seguidores y Seguidos** | Solo conteos numéricos de la cabecera. | **Listas completas de usuarios**: extracción de `@usuario`, nombre visible, URL y avatar mediante scroll modal con Set anti-duplicados. |
+| **Interfaz de Usuario** | Únicamente línea de comandos (CLI) con pausas manuales. | **Panel de Control Web (`app.py`)** con terminal de logs en vivo, visor de galería y comprobador de cookies. |
+
+---
 
 ## Objetivo
 
-Organizar en JSON los campos disponibles durante la consulta:
+Organizar en un documento estructurado `datos_<usuario>.json` los campos íntegros del perfil:
 
-- Usuario y nombre visible
-- Biografía
-- Conteos de seguidores, seguidos y publicaciones
-- Enlaces de publicaciones y reels detectados
-- Texto alternativo de las imágenes (cuando está disponible)
+- Identificación: `@usuario`, nombre completo, biografía con saltos de línea/emojis y foto de avatar.
+- Indicadores: Insignia de verificación y estado público/privado.
+- Conteos oficiales: Publicaciones totales, seguidores y seguidos.
+- Publicaciones detalladas:
+  - Clasificación estricta: `publicacion` (foto fija), `carrusel` (álbum de varias fotos) o `reel` / `video`.
+  - Fecha UTC de publicación y enlace permanente.
+  - Descripción completa (*caption*).
+  - Conteo de likes (o estado oculto).
+  - Conteo de comentarios y muestra de respuestas.
+  - Enlaces de CDN y rutas de archivos locales descargados (`.jpg` y `.mp4`).
+- Listas de usuarios de Seguidores y Seguidos.
 
-El resultado real (`datos_sausage_player.json`) **no se incluye en este repositorio**. El archivo `ejemplo_datos.json` contiene datos ficticios que muestran la estructura.
+> **Nota sobre privacidad:** Por respeto a la privacidad de datos reales, los archivos de captura reales (`datos_sausage_player.json` y la carpeta `descargas_sausage_player/`) **no se publican en el repositorio** y están protegidos por `.gitignore`. Se incluye el archivo [ejemplo_datos.json](ejemplo_datos.json) con datos estructurados de referencia.
 
-## Resultados observados
+---
 
-| Método | Resultado |
-|---|---|
-| Requests (endpoint interno `web_profile_info`, con cookies de una cuenta secundaria) | HTTP 429; no se obtuvieron datos. La causa no se pudo determinar. |
-| Scrapy | Practicado sobre `quotes.toscrape.com` (100 registros). No se usó contra Instagram. Los archivos de esa práctica no se incluyen en este repositorio. |
-| Playwright (navegador real) | En la primera captura se obtuvieron nombre, biografía, conteos y 50 publicaciones, **iniciando sesión**. |
-| Playwright (capturas posteriores) | Sin sesión aparecieron menos publicaciones (24 y luego 12) y en uno de los intentos Instagram mostró una verificación (reCAPTCHA). El script se detiene en ese caso. No se determinó la causa. |
+## Herramientas y Tecnologías
 
-## Herramientas
+| Herramienta | Rol en la Arquitectura | Justificación Técnica |
+|---|---|---|
+| **Python 3.10+** | Lenguaje Principal | Manejo de flujos de datos, peticiones y estructuración JSON. |
+| **Playwright (Chromium)** | Automatización Web | Emulación de navegador real capaz de ejecutar JavaScript moderno y Single Page Applications (SPA). |
+| **python-dotenv** | Seguridad y Configuración | Carga de variables de entorno locales desde `.env` sin exponer credenciales en el código. |
+| **Requests** | Validación Previa | Comprobación de estado HTTP de cookies antes de iniciar el navegador gráfico. |
+| **Vanilla HTML/CSS/JS** | Dashboard Web (`app.py`) | Panel de control local sin sobrecarga de frameworks externos pesados. |
 
-| Herramienta | Uso en el proyecto |
-|---|---|
-| Python 3.12 | Lenguaje de programación |
-| Playwright | Abre Chromium y permite leer el DOM que muestra el navegador |
-| python-dotenv | Lee configuración local desde `.env` (usuario objetivo) |
+*(Herramientas evaluadas previamente como `beautifulsoup4`, `Scrapy` o `Selenium` no forman parte del pipeline de producción debido a los bloqueos de renderizado dinámico de Instagram).*
 
-`requests`, `beautifulsoup4` y `Scrapy` están en `requirements.txt` por las pruebas descritas arriba, pero **no forman parte de la ejecución principal**. Selenium y Puppeteer no se usaron.
+---
 
-## Cómo funciona
+## Cómo Funciona la Arquitectura
 
-1. Playwright abre Chromium con un perfil de navegador persistente (`.pw_profile/`).
-2. Carga la página del perfil. Se detiene si recibe 429, 404 o una verificación (reCAPTCHA/challenge).
-3. Lee dos fuentes de texto de la página: el metadato `og:description` y el texto visible de la cabecera.
-4. Obtiene los conteos de la cabecera (lo que ve el usuario) y, si no están, del metadato. El nombre y la biografía salen de la cabecera con una heurística: se quitan usuario, botones y conteos.
-5. Hace scroll lento (pausas aleatorias de 2,5 a 4,5 s, máximo 30 pasos) y recolecta los enlaces `/p/` y `/reel/` con el texto alternativo de cada imagen.
-6. Guarda el resultado en JSON. Antes de sobrescribir, copia el archivo anterior a `datos_sausage_player.prev.json`.
+1. **Inyección de Sesión Segura**:
+   Playwright inicia una instancia limpia de Chromium e inyecta las cookies de sesión activa (`sessionid`, `ds_user_id`, `csrftoken`) provistas en `.env`. Esto evita el muro de login, los captchas y la necesidad de introducir contraseñas.
+2. **Lectura de Cabecera y OpenGraph**:
+   Se extrae el metadato `og:description` y el texto de la cabecera visible para comparar conteos y obtener la biografía de forma heurística.
+3. **Navegación Modal de Publicaciones**:
+   Se abre la primera publicación en un diálogo modal (`div[role="dialog"]`) y se navega secuencialmente con la tecla `ArrowRight`.
+4. **Descarga Limpia de Multimedia**:
+   - **Fotos / Carruseles**: Se obtienen las URLs directas de las imágenes en alta resolución y se descargan a disco como `{shortcode}_{i}.jpg`.
+   - **Videos / Reels**: En lugar de depender de URLs temporales `blob:`, se inspecciona el árbol de componentes internos de React del elemento `<video>` para obtener el enlace nativo `<BaseURL>` del archivo `.mp4`, evitando la contaminación por videos precargados de fondo.
+5. **Exploración de la pestaña `/reels/`**:
+   Si la cuenta tiene videos archivados exclusivamente en su pestaña de Reels, el script navega a `/<usuario>/reels/` y procesa los videos restantes.
+6. **Extracción de Seguidores y Seguidos**:
+   Abre los modales correspondientes y realiza scroll continuo manteniendo un `Set` en memoria para descartar duplicados hasta alcanzar el total deseado.
 
-Si Instagram pide iniciar sesión, el script espera a que el usuario lo haga **a mano**. No escribe usuario ni contraseña.
+---
 
-## Estructura del proyecto
+## Estructura del Repositorio
 
-```
+```text
 instagram-scraper/
-├── extraer_playwright.py   # Script principal
-├── ejemplo_datos.json      # Estructura de salida con datos ficticios
-├── requirements.txt        # Dependencias
-├── .env.example            # Plantilla de variables de entorno
-├── .gitignore              # Excluye .env, .pw_profile/, entornos, datos reales
-└── README.md
+├── app.py                                  # Panel de Control Web y servidor local (localhost:5000)
+├── extraer_playwright.py                   # Motor Playwright consolidado
+├── ejemplo_datos.json                      # Estructura de salida JSON con datos de ejemplo
+├── requirements.txt                        # Dependencias de Python
+├── .env.example                            # Plantilla de variables de entorno
+├── .gitignore                              # Exclusión de .env, datos reales y descargas
+├── README.md                               # Documentación del proyecto
+├── Informe_Tecnico_Instagram_Scraper.docx  # Memoria técnica formal en Word
+└── Informe_Tecnico_Instagram_Scraper.pdf   # Memoria técnica formal en PDF
 ```
 
-## Instalación y uso
+---
+
+## Instalación y Uso
+
+### 1. Preparación del Entorno
 
 ```powershell
-git clone <url-del-repositorio>
-cd instagram-scraper
+# Crear y activar entorno virtual
 python -m venv .venv
 .venv\Scripts\Activate.ps1
+
+# Instalar dependencias y navegador Chromium
 pip install -r requirements.txt
 playwright install chromium
-copy .env.example .env
-python extraer_playwright.py
 ```
 
-- Si aparece una verificación (reCAPTCHA), **no repitas la ejecución**: el script ya se detuvo y volver a intentarlo no es recomendable.
-- Para recalcular bio y conteos desde un JSON ya guardado, sin abrir Instagram:
+### 2. Configurar Cookies en `.env`
+
+Copia la plantilla y coloca tus cookies de sesión obtenidas desde las Herramientas de Desarrollador (`F12` -> Application -> Cookies -> instagram.com):
 
 ```powershell
-python extraer_playwright.py --reparsear
+copy .env.example .env
 ```
 
-## Formato de salida
+Contenido de `.env`:
+```env
+TARGET_USER=sausage_player
+IG_SESSIONID=tu_sessionid_aqui
+IG_DS_USER_ID=tu_ds_user_id_aqui
+IG_CSRFTOKEN=tu_csrftoken_aqui
+```
 
-Ver `ejemplo_datos.json`. Campos principales:
+### 3. Ejecución
 
-| Campo | Contenido |
-|---|---|
-| `usuario`, `nombre_completo`, `biografia` | Identificación y texto del perfil |
-| `seguidores`, `seguidos`, `total_publicaciones` | Conteos (preferencia: cabecera visible) |
-| `publicaciones_extraidas` | Lista con `tipo`, `shortcode`, `url`, `texto_alt` |
-| `extraido_el` | Fecha y hora UTC de la captura |
-| `_conteos_og` | Conteos leídos del metadato, para comparar |
-| `_og_description`, `_texto_cabecera` | Texto crudo, para revisar o ajustar el parseo |
+#### Opción A: Mediante el Panel de Control Web (Recomendado)
+```powershell
+python app.py
+```
+Abre en tu navegador `http://localhost:5000` para operar con interfaz gráfica, ver la terminal de logs en vivo y previsualizar publicaciones y multimedia.
 
-## Limitaciones
+#### Opción B: Por Línea de Comandos (CLI)
+```powershell
+# Modo automático completo
+python extraer_playwright.py --auto
 
-- Es una captura puntual: los conteos y las publicaciones visibles cambian con el tiempo.
-- **Conteos:** el metadato `og:description` y la cabecera visible pueden diferir. En las capturas realizadas, el valor de «seguidos» del metadato difirió del de la cabecera, y una revisión manual coincidió con la cabecera. Por eso se prefiere la cabecera y se guardan ambas lecturas.
-- La biografía se obtiene con una heurística; conviene verificarla contra el perfil.
-- Seguidores y seguidos son solo totales, no listas de usuarios.
-- De cada publicación solo se guardan enlace, tipo, shortcode y texto alternativo; no hay fecha, likes ni comentarios.
-- Sin sesión, Instagram limita cuántas publicaciones muestra, y ese límite no fue constante entre capturas.
-- El script depende de la estructura actual de la página; un cambio en Instagram puede romperlo.
-- No se determinó la causa del HTTP 429 ni de la verificación reCAPTCHA.
+# Extraer un número específico de posts (ej. 10 publicaciones)
+python extraer_playwright.py --max-posts 10
 
-## Seguridad y ética
+# Modo en segundo plano (headless)
+python extraer_playwright.py --auto --headless
 
-- `.env` y `.pw_profile/` (que puede guardar cookies de sesión) están en `.gitignore`. **Nunca se suben.**
-- Se usó una cuenta secundaria y una sola sesión de navegador con pausas entre scrolls.
-- El script se detiene ante 429, verificación o un login que no se resuelve. No reintenta.
-- Los datos reales pertenecen a una persona real y **no se publican** en este repositorio.
-- Instagram restringe la recolección automatizada sin permiso (ver referencias). Este trabajo es académico y no se redistribuyen los datos.
-- Al terminar, borrar `.pw_profile/` elimina la sesión guardada.
+# Solo perfil básico (sin multimedia)
+python extraer_playwright.py --solo-perfil
+```
 
-## Conceptos aprendidos
+---
 
-- **SPA y renderizado dinámico:** la página se arma con JavaScript, por eso se usa un navegador real.
-- **HTTP 429:** el servidor limitó las solicitudes; no explica por sí solo el motivo.
-- **Perfil persistente de Playwright:** `launch_persistent_context` guarda el estado del navegador en disco.
-- **Scroll lento y condiciones de parada:** hasta el total esperado, sin novedades o un máximo de pasos.
-- **Selectores CSS:** `a[href*="/p/"]`, `a[href*="/reel/"]` y el `alt` de las imágenes.
-- **Parseo heurístico y expresiones regulares:** lectura de conteos y biografía desde texto.
-- **Verificar contra otra fuente:** comparar metadato y cabecera reveló una discrepancia.
-- **Separar configuración y código:** `python-dotenv` y `.env`.
+## Seguridad y Buenas Prácticas para Git
 
-## Referencias
+Al mantener este repositorio en Git:
 
-- Playwright para Python: https://playwright.dev/python/docs/intro
-- Instagram, términos de recolección automatizada de datos: https://www.facebook.com/legal/automated_data_collection_terms
-- MDN, código de estado HTTP 429: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429
-- Tutorial de Scrapy: https://docs.scrapy.org/en/latest/intro/tutorial.html
+* **Archivos para control de versiones:** `extraer_playwright.py`, `app.py`, `requirements.txt`, `.env.example`, `.gitignore`, `README.md`, `ejemplo_datos.json` e informes técnicos.
+* **Archivos que NUNCA se suben (ignorados en `.gitignore`):**
+  * `.env` (contiene la cookie privada de sesión).
+  * `datos_*.json` (datos reales recolectados).
+  * `descargas_*/` (imágenes y videos descargados).
+  * `.venv/` y `__pycache__/`.
+
+---
+
+## Conceptos de Arquitectura de Software Aprendidos
+
+1. **SPA (Single Page Application) y Client-Side Rendering**: Las plataformas como Instagram dependen de React para hidratar el DOM dinámicamente; las peticiones HTTP tradicionales reciben un cascarón vacío.
+2. **Session Hijacking / Cookie Injection**: Cómo los identificadores de sesión evitan autenticaciones repetitivas y mitigan desafíos de seguridad (2FA/reCAPTCHA).
+3. **Flujos Multimedia y MSE (MediaSource Extensions)**: Comprensión de por qué los navegadores no permiten hacer `fetch()` a URLs `blob:` y cómo inspeccionar el árbol React para llegar al archivo contenedor MP4 original.
+4. **Resiliencia ante Heurísticas Cambiantes**: Implementación de fallbacks (lectura cruzada entre cabecera visible y etiquetas OpenGraph) para garantizar la consistencia de los datos.
+5. **Desacoplamiento de Interfaz y Lógica**: Separación del motor de extracción por lotes (`extraer_playwright.py`) de la capa de presentación y control de usuario (`app.py`).
+
+---
 
 ## Autor
 
-Erick Simbaña— Ingeniería en Sistemas, 7.º semestre, UCE — 2026
+**Erick Simbaña**  
+*Ingeniería en Sistemas, 7.º semestre*  
+*Facultad de Ingeniería y Ciencias Aplicadas*  
+*Universidad Central del Ecuador (UCE) — 2026*
