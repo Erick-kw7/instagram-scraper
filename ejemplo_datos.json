@@ -1,37 +1,74 @@
 {
-    "usuario": "usuario_ejemplo",
-    "fuente": "playwright (perfil cargado en navegador real)",
-    "extraido_el": "2026-01-01T12:00:00+00:00",
-    "nombre_completo": "Nombre Ficticio",
-    "biografia": "Texto de biografía de ejemplo\nSegunda línea de ejemplo",
-    "seguidores": 1234,
-    "seguidos": 567,
-    "total_publicaciones": 3,
-    "publicaciones_extraidas": [
-        {
-            "tipo": "publicacion",
-            "shortcode": "AAAAAAAAAAA",
-            "url": "https://www.instagram.com/usuario_ejemplo/p/AAAAAAAAAAA/",
-            "texto_alt": "Texto de ejemplo de la publicación 1"
-        },
-        {
-            "tipo": "reel",
-            "shortcode": "BBBBBBBBBBB",
-            "url": "https://www.instagram.com/usuario_ejemplo/reel/BBBBBBBBBBB/",
-            "texto_alt": ""
-        },
-        {
-            "tipo": "publicacion",
-            "shortcode": "CCCCCCCCCCC",
-            "url": "https://www.instagram.com/usuario_ejemplo/p/CCCCCCCCCCC/",
-            "texto_alt": "Texto de ejemplo de la publicación 3"
-        }
-    ],
-    "_conteos_og": {
-        "seguidores": 1234,
-        "seguidos": 600,
-        "total_publicaciones": 3
+  "usuario": "usuario_ejemplo",
+  "nombre_completo": "Nombre Demostrativo",
+  "biografia": "Biografía de ejemplo para documentación técnica 🚀",
+  "avatar_url": "https://instagram.../avatar.jpg",
+  "es_privado": false,
+  "es_verificado": false,
+  "seguidores": 1250,
+  "seguidos": 340,
+  "total_publicaciones": 15,
+  "publicaciones_extraidas": 2,
+  "extraido_el": "2026-10-20T12:00:00+00:00",
+  "fuente": "Playwright con cookies de .env",
+  "publicaciones": [
+    {
+      "shortcode": "C_Ejemplo01",
+      "url": "https://www.instagram.com/p/C_Ejemplo01/",
+      "tipo": "carrusel",
+      "descripcion": "Descripción del post demostrativo #ejemplo",
+      "likes": 45,
+      "likes_ocultos": false,
+      "likes_texto": "45 Me gusta",
+      "comentarios": 3,
+      "comentarios_desactivados": false,
+      "comentarios_muestra": [
+        "usuario_fan ¡Excelente foto!"
+      ],
+      "fecha": "2026-10-15T18:30:00.000Z",
+      "media_urls": [
+        "https://instagram.../foto_1.jpg",
+        "https://instagram.../foto_2.jpg"
+      ],
+      "archivos_descargados": [
+        "descargas_usuario_ejemplo/C_Ejemplo01_0.jpg",
+        "descargas_usuario_ejemplo/C_Ejemplo01_1.jpg"
+      ]
     },
-    "_og_description": "1,234 Followers, 600 Following, 3 Posts - Ver fotos y videos de Instagram de Nombre Ficticio (@usuario_ejemplo)",
-    "_texto_cabecera": "usuario_ejemplo\nNombre Ficticio\n3 publicaciones\n1.234 seguidores\n567 seguidos\nTexto de biografía de ejemplo\nSegunda línea de ejemplo"
+    {
+      "shortcode": "C_Reel02",
+      "url": "https://www.instagram.com/reel/C_Reel02/",
+      "tipo": "reel",
+      "descripcion": "Video reel demostrativo",
+      "likes": null,
+      "likes_ocultos": true,
+      "likes_texto": "Oculto (Liked by user and others)",
+      "comentarios": 0,
+      "comentarios_desactivados": false,
+      "comentarios_muestra": [],
+      "fecha": "2026-10-18T20:15:00.000Z",
+      "media_urls": [
+        "https://instagram.../video.mp4"
+      ],
+      "archivos_descargados": [
+        "descargas_usuario_ejemplo/C_Reel02.mp4"
+      ]
+    }
+  ],
+  "seguidores_lista": [
+    {
+      "usuario": "seguidor_1",
+      "nombre": "Amigo Uno",
+      "url": "https://www.instagram.com/seguidor_1/",
+      "avatar": "https://instagram.../avatar1.jpg"
+    }
+  ],
+  "seguidos_lista": [
+    {
+      "usuario": "seguido_1",
+      "nombre": "Creador Oficial",
+      "url": "https://www.instagram.com/seguido_1/",
+      "avatar": "https://instagram.../avatar2.jpg"
+    }
+  ]
 }
