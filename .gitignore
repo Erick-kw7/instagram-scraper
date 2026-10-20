@@ -1,24 +1,25 @@
+# Entorno y credenciales
+.env
+*.env
+.pw_profile/
+*.session
+COOKIES.txt
+cookies_instagram.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
 .venv/
 venv/
 env/
-.env
-.env.local
-.env.*.local
-.pw_profile/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-datos_sausage_player.prev.json
-.scrapy/
-httpcache/
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
-datos_sausage_player.json  
+
+# Datos extraídos y descargas multimedia de perfiles
+datos_*.json
+descargas_*/
+*.prev.json
+
+# Archivos de prueba temporales
+test_*.py
+*.mp4
+!dashboard_preview.png
