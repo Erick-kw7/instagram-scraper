@@ -1,6 +1,6 @@
 """
 =============================================================================
-INSTAGRAM SCRAPER (PLAYWRIGHT)
+INSTAGRAM SCRAPER  (PLAYWRIGHT)
 =============================================================================
 Script único y consolidado para la extracción de perfiles de Instagram:
 1. Información del Perfil: Bio, nombre, conteos oficiales (posts, seguidores, seguidos).
@@ -55,6 +55,10 @@ from playwright.sync_api import sync_playwright
 # Carga de Configuración y Variables de Entorno (.env)
 # ============================================================
 BASE = Path(__file__).resolve().parent
+DIR_DATOS = BASE / "Datos Extraídos"
+DIR_MEDIA = BASE / "Descargas Multimedia"
+DIR_DATOS.mkdir(parents=True, exist_ok=True)
+DIR_MEDIA.mkdir(parents=True, exist_ok=True)
 load_dotenv(BASE / ".env")
 
 TARGET_DEFAULT = os.getenv("TARGET_USER", "sausage_player").strip().lstrip("@")
@@ -570,7 +574,7 @@ def extraer_lista_modal(page, selector_or_locator, titulo: str, modo_auto: bool 
 
     if not modo_auto:
         log_fn("\n" + "=" * 65)
-        log_fn(f"👉 MODO MANUAL ACTIVO PARA: {titulo.upper()}")
+        log_fn(f"[MODO MANUAL] Activo para: {titulo.upper()}")
         log_fn("   - Se ha abierto la ventana con la lista de usuarios.")
         log_fn("   - Puedes usar la rueda del ratón en la ventana para hacer scroll")
         log_fn("     hacia abajo y revisar de uno en uno.")
@@ -706,7 +710,7 @@ def extraer_publicaciones_completas(page, context, target: str, max_posts: int =
                             if resp.ok and len(resp.body()) > 15000:
                                 dest.write_bytes(resp.body())
                                 archivos_locales.append(str(dest.relative_to(BASE)))
-                                log_fn(f"      [✓] Video MP4 descargado: {filename} ({dest.stat().st_size // 1024} KB)")
+                                log_fn(f"      [OK] Video MP4 descargado: {filename} ({dest.stat().st_size // 1024} KB)")
                                 break
                         except Exception as err:
                             log_fn(f"      [!] Aviso en descarga de video: {err}")
@@ -720,7 +724,7 @@ def extraer_publicaciones_completas(page, context, target: str, max_posts: int =
                         if resp.ok:
                             dest.write_bytes(resp.body())
                             archivos_locales.append(str(dest.relative_to(BASE)))
-                            log_fn(f"      [✓] Imagen descargada: {filename} ({dest.stat().st_size // 1024} KB)")
+                            log_fn(f"      [OK] Imagen descargada: {filename} ({dest.stat().st_size // 1024} KB)")
                     except Exception as err:
                         log_fn(f"      [!] Error descargando imagen {img_url[:30]}: {err}")
 
@@ -797,7 +801,7 @@ def extraer_publicaciones_completas(page, context, target: str, max_posts: int =
                                 if resp.ok and len(resp.body()) > 15000:
                                     dest.write_bytes(resp.body())
                                     archivos_locales.append(str(dest.relative_to(BASE)))
-                                    log_fn(f"      [✓] Reel MP4 descargado exitosamente: {filename} ({dest.stat().st_size // 1024} KB)")
+                                    log_fn(f"      [OK] Reel MP4 descargado exitosamente: {filename} ({dest.stat().st_size // 1024} KB)")
                                     break
                             except Exception as err:
                                 log_fn(f"      [!] Aviso en descarga de video: {err}")
@@ -874,8 +878,10 @@ def extraer_perfil_completo(
     seguidores y seguidos.
     """
     target = target.strip().lstrip("@")
-    salida_path = BASE / f"datos_{target}.json"
-    descargas_dir = BASE / f"descargas_{target}"
+    DIR_DATOS.mkdir(parents=True, exist_ok=True)
+    DIR_MEDIA.mkdir(parents=True, exist_ok=True)
+    salida_path = DIR_DATOS / f"datos_{target}.json"
+    descargas_dir = DIR_MEDIA / f"descargas_{target}"
 
     log_fn("=" * 65)
     log_fn("INSTAGRAM SCRAPER DEFINITIVO (PLAYWRIGHT)")
@@ -992,8 +998,8 @@ def extraer_perfil_completo(
             except Exception:
                 pass
 
-            tipo_cuenta_str = "🔒 Cuenta Privada" if es_privado else "🌐 Cuenta Pública"
-            verif_str = " (Verificado ✓)" if es_verificado else ""
+            tipo_cuenta_str = "Cuenta Privada" if es_privado else "Cuenta Pública"
+            verif_str = " (Verificado)" if es_verificado else ""
 
             log_fn(f"\n[+] Perfil cargado exitosamente:")
             log_fn(f"    Usuario:        @{target}{verif_str}")
@@ -1069,7 +1075,7 @@ def extraer_perfil_completo(
     salida_path.write_text(json.dumps(resultado, ensure_ascii=False, indent=2), encoding="utf-8")
 
     log_fn("\n" + "=" * 65)
-    log_fn("🎉 EXTRACCIÓN COMPLETADA CON ÉXITO")
+    log_fn("EXTRACCIÓN COMPLETADA CON ÉXITO")
     log_fn(f"Archivo JSON generado:   {salida_path.name}")
     log_fn(f"Ruta completa JSON:      {salida_path.resolve()}")
     if not sin_descarga:
@@ -1113,11 +1119,11 @@ EJEMPLOS DE USO:
         print("[*] Comprobando cookies de sesión en .env contra Instagram...")
         estado = verificar_estado_cookies()
         if estado["valido"]:
-            print(f"[✓] COOKIES VÁLIDAS: {estado['motivo']}")
+            print(f"[OK] COOKIES VÁLIDAS: {estado['motivo']}")
             if estado.get("ds_user_id"):
                 print(f"    ID de usuario autenticado: {estado['ds_user_id']}")
         else:
-            print(f"[✗] COOKIES INVÁLIDAS O EXPIRADAS: {estado['motivo']}")
+            print(f"[ERROR] COOKIES INVÁLIDAS O EXPIRADAS: {estado['motivo']}")
             if estado.get("detalles"):
                 print(f"    {estado['detalles']}")
         return
