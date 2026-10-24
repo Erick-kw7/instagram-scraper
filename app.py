@@ -38,6 +38,15 @@ if sys.platform == "win32":
 from dotenv import load_dotenv
 
 BASE = Path(__file__).resolve().parent
+DIR_DATOS = BASE / "Datos Extraídos"
+DIR_DATOS_FALLBACK = BASE / "Datos Extraidos"
+DIR_ANALISIS = BASE / "Análisis BigFive"
+DIR_MEDIA = BASE / "Descargas Multimedia"
+
+DIR_DATOS.mkdir(parents=True, exist_ok=True)
+DIR_ANALISIS.mkdir(parents=True, exist_ok=True)
+DIR_MEDIA.mkdir(parents=True, exist_ok=True)
+
 load_dotenv(BASE / ".env")
 
 # Importar funciones del scraper definitivo
@@ -129,16 +138,34 @@ def hilo_extraccion(target: str, max_posts: int, modo_auto: bool, headless: bool
 
 
 def listar_perfiles_guardados() -> list[dict]:
-    """Busca archivos datos_*.json en el directorio actual."""
+    """Busca archivos datos_*.json en Datos Extraídos (y fallbacks a Datos Extraidos y raíz)."""
     perfiles = []
+    vistos = set()
+
+    # Buscar en carpeta 'Datos Extraídos' primero
+    archivos = list(DIR_DATOS.glob("datos_*.json")) if DIR_DATOS.exists() else []
+    # Fallback a 'Datos Extraidos' sin tilde
+    if DIR_DATOS_FALLBACK.exists():
+        for f in DIR_DATOS_FALLBACK.glob("datos_*.json"):
+            if f.name not in [a.name for a in archivos]:
+                archivos.append(f)
+    # Fallback a raíz
     for f in BASE.glob("datos_*.json"):
+        if f.parent == BASE and f.name not in [a.name for a in archivos]:
+            archivos.append(f)
+
+    for f in archivos:
         if f.name.endswith(".prev.json"):
             continue
         try:
             d = json.loads(f.read_text(encoding="utf-8"))
+            usr = d.get("usuario", f.stem.replace("datos_", ""))
+            if usr in vistos:
+                continue
+            vistos.add(usr)
             perfiles.append({
                 "archivo": f.name,
-                "usuario": d.get("usuario", f.stem.replace("datos_", "")),
+                "usuario": usr,
                 "nombre_completo": d.get("nombre_completo"),
                 "seguidores": d.get("seguidores"),
                 "seguidos": d.get("seguidos"),
@@ -226,9 +253,13 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
         # 5. API Obtener datos de un usuario
         if path == "/api/data":
             usuario = qs.get("usuario", [TARGET_DEFAULT])[0].strip().lstrip("@")
-            archivo = BASE / f"datos_{usuario}.json"
+            archivo = DIR_DATOS / f"datos_{usuario}.json"
+            if not archivo.exists() and DIR_DATOS_FALLBACK.exists():
+                archivo = DIR_DATOS_FALLBACK / f"datos_{usuario}.json"
             if not archivo.exists():
-                self.send_json({"error": f"No se encontró el archivo {archivo.name}"}, status=404)
+                archivo = BASE / f"datos_{usuario}.json"
+            if not archivo.exists():
+                self.send_json({"error": f"No se encontró el archivo datos_{usuario}.json en '{DIR_DATOS.name}' ni en la raíz."}, status=404)
                 return
             try:
                 data = json.loads(archivo.read_text(encoding="utf-8"))
@@ -252,14 +283,16 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
                 })
             return
 
-        # 7. Servir archivos multimedia locales (descargas_{target}/...)
+        # 7. Servir archivos multimedia locales (Descargas Multimedia/descargas_{target}/...)
         if path.startswith("/media/"):
             # Formato esperado: /media/<usuario>/<archivo>
             partes = path[len("/media/"):].split("/", 1)
             if len(partes) == 2:
                 user, filename = partes
                 safe_filename = Path(filename).name
-                file_path = BASE / f"descargas_{user}" / safe_filename
+                file_path = DIR_MEDIA / f"descargas_{user}" / safe_filename
+                if not file_path.exists():
+                    file_path = BASE / f"descargas_{user}" / safe_filename
                 if file_path.exists() and file_path.is_file():
                     ext = file_path.suffix.lower()
                     mime_types = {
@@ -285,7 +318,11 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
         # 8. Descargar JSON directamente como attachment
         if path == "/api/download_json":
             usuario = qs.get("usuario", [TARGET_DEFAULT])[0].strip().lstrip("@")
-            archivo = BASE / f"datos_{usuario}.json"
+            archivo = DIR_DATOS / f"datos_{usuario}.json"
+            if not archivo.exists() and DIR_DATOS_FALLBACK.exists():
+                archivo = DIR_DATOS_FALLBACK / f"datos_{usuario}.json"
+            if not archivo.exists():
+                archivo = BASE / f"datos_{usuario}.json"
             if archivo.exists():
                 content = archivo.read_bytes()
                 self.send_response(200)
@@ -301,7 +338,17 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
         # 9. Abrir carpeta en el explorador de Windows
         if path == "/api/open_folder":
             usuario = qs.get("usuario", [TARGET_DEFAULT])[0].strip().lstrip("@")
-            carpeta = BASE / f"descargas_{usuario}"
+            tipo = qs.get("tipo", ["descargas"])[0].strip().lower()
+            if tipo == "datos":
+                carpeta = DIR_DATOS if DIR_DATOS.exists() else DIR_DATOS_FALLBACK
+            elif tipo == "analisis":
+                carpeta = DIR_ANALISIS
+            elif tipo == "multimedia":
+                carpeta = DIR_MEDIA
+            else:
+                carpeta = DIR_MEDIA / f"descargas_{usuario}"
+                if not carpeta.exists():
+                    carpeta = BASE / f"descargas_{usuario}"
             carpeta.mkdir(parents=True, exist_ok=True)
             try:
                 if sys.platform == "win32":
@@ -309,6 +356,37 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
                 self.send_json({"ok": True, "ruta": str(carpeta.resolve())})
             except Exception as e:
                 self.send_json({"error": str(e)}, status=500)
+            return
+
+        # 10. API Obtener análisis Big Five
+        if path == "/api/bigfive":
+            usuario = qs.get("usuario", [TARGET_DEFAULT])[0].strip().lstrip("@")
+            archivo_bf = DIR_ANALISIS / f"analisis_bigfive_{usuario}.json"
+            if not archivo_bf.exists():
+                archivo_bf = BASE / f"analisis_bigfive_{usuario}.json"
+            if archivo_bf.exists():
+                try:
+                    data = json.loads(archivo_bf.read_text(encoding="utf-8"))
+                    self.send_json(data)
+                    return
+                except Exception as e:
+                    self.send_json({"error": str(e)}, status=500)
+                    return
+            # Si no existe archivo independiente, verificar dentro de datos_{usuario}.json
+            archivo_datos = DIR_DATOS / f"datos_{usuario}.json"
+            if not archivo_datos.exists() and DIR_DATOS_FALLBACK.exists():
+                archivo_datos = DIR_DATOS_FALLBACK / f"datos_{usuario}.json"
+            if not archivo_datos.exists():
+                archivo_datos = BASE / f"datos_{usuario}.json"
+            if archivo_datos.exists():
+                try:
+                    d = json.loads(archivo_datos.read_text(encoding="utf-8"))
+                    if "analisis_bigfive" in d and d["analisis_bigfive"]:
+                        self.send_json(d["analisis_bigfive"])
+                        return
+                except Exception:
+                    pass
+            self.send_json({"error": f"No se encontró análisis Big Five para @{usuario}."}, status=404)
             return
 
         self.send_response(404)
@@ -361,6 +439,32 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
                     "solo_perfil": solo_perfil,
                 }
             })
+            return
+
+        # 11. Ejecutar análisis Big Five con Gemini
+        if path == "/api/ejecutar_bigfive":
+            content_length = int(self.headers.get("Content-Length", 0))
+            post_data = self.rfile.read(content_length)
+            try:
+                params = json.loads(post_data.decode("utf-8")) if post_data else {}
+            except Exception:
+                params = {}
+            target = params.get("usuario", TARGET_DEFAULT).strip().lstrip("@")
+
+            try:
+                from analizar_personalidad_gemini import ejecutar_analisis_bigfive
+                def hilo_bf():
+                    try:
+                        registrar_log(f"[INFO] Iniciando inferencia Big Five (Gemini AI) para @{target}...")
+                        ejecutar_analisis_bigfive(target)
+                        registrar_log(f"[OK] Análisis Big Five completado con éxito para @{target}!")
+                    except Exception as err:
+                        registrar_log(f"[ERROR] Error en análisis Big Five: {err}")
+
+                threading.Thread(target=hilo_bf, daemon=True).start()
+                self.send_json({"ok": True, "mensaje": f"Análisis Big Five iniciado para @{target}"})
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=500)
             return
 
         self.send_response(404)
@@ -1086,6 +1190,187 @@ HTML_PAGE = """<!DOCTYPE html>
       text-decoration: underline;
     }
 
+    /* Estilos Big Five (OCEAN) - Gemini AI */
+    .bigfive-box {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .bigfive-header-card {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 50%, rgba(236, 72, 153, 0.15) 100%);
+      border: 1px solid rgba(168, 85, 247, 0.35);
+      border-radius: var(--radius-md);
+      padding: 22px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .bigfive-header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .bigfive-archetype {
+      font-size: 1.45rem;
+      font-weight: 800;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .bigfive-badges {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .badge-ocean {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+
+    .badge-archetype {
+      background: rgba(168, 85, 247, 0.25);
+      color: #d8b4fe;
+      border: 1px solid rgba(168, 85, 247, 0.4);
+    }
+
+    .badge-predominant {
+      background: rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+      border: 1px solid rgba(239, 68, 68, 0.4);
+    }
+
+    .badge-model {
+      background: rgba(59, 130, 246, 0.2);
+      color: #93c5fd;
+      border: 1px solid rgba(59, 130, 246, 0.4);
+    }
+
+    .bigfive-summary {
+      font-size: 0.92rem;
+      color: #e2e8f0;
+      line-height: 1.6;
+      background: rgba(0, 0, 0, 0.25);
+      padding: 14px 18px;
+      border-radius: var(--radius-sm);
+      border-left: 4px solid #a855f7;
+    }
+
+    .bigfive-traits-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+
+    .trait-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 18px 20px;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+
+    .trait-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .trait-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .trait-title {
+      font-size: 1.02rem;
+      font-weight: 700;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .trait-score-val {
+      font-size: 1.25rem;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .trait-bar-track {
+      width: 100%;
+      height: 10px;
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .trait-bar-fill {
+      height: 100%;
+      border-radius: 6px;
+      transition: width 1s ease-in-out;
+    }
+
+    .bar-openness { background: linear-gradient(90deg, #3b82f6, #06b6d4); }
+    .bar-conscientiousness { background: linear-gradient(90deg, #10b981, #34d399); }
+    .bar-extraversion { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .bar-agreeableness { background: linear-gradient(90deg, #ec4899, #f472b6); }
+    .bar-neuroticism { background: linear-gradient(90deg, #ef4444, #f87171); }
+
+    .trait-interpret {
+      font-size: 0.86rem;
+      color: #cbd5e1;
+      line-height: 1.45;
+      margin-bottom: 10px;
+    }
+
+    .trait-evidences {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+
+    .trait-evidences ul {
+      margin: 4px 0 0 16px;
+      padding: 0;
+    }
+
+    .trait-evidences li {
+      margin-bottom: 4px;
+      line-height: 1.35;
+    }
+
+    .bigfive-academic-box {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px dashed rgba(148, 163, 184, 0.3);
+      border-radius: var(--radius-sm);
+      padding: 16px 20px;
+      font-size: 0.84rem;
+      color: #94a3b8;
+      line-height: 1.5;
+    }
+
+    .bigfive-academic-box strong {
+      color: #e2e8f0;
+    }
+
     /* Lista de Usuarios (Seguidores / Seguidos) */
     .users-list-grid {
       display: grid;
@@ -1310,7 +1595,7 @@ HTML_PAGE = """<!DOCTYPE html>
           <span id="cookieText">Comprobando cookies...</span>
         </div>
         <button id="btnCheckCookies" class="btn btn-secondary btn-sm" onclick="verificarCookiesManual()">
-          🔄 Comprobar
+          Comprobar
         </button>
       </div>
     </header>
@@ -1339,7 +1624,7 @@ HTML_PAGE = """<!DOCTYPE html>
       <div>
         <div class="card">
           <div class="card-title">
-            <span>⚙️ Parámetros de Extracción</span>
+            <span>Parámetros de Extracción</span>
           </div>
 
           <!-- Usuario objetivo -->
@@ -1363,7 +1648,7 @@ HTML_PAGE = """<!DOCTYPE html>
               <span class="chip" onclick="setMaxPosts(0)">Todas (0)</span>
             </div>
             <small style="color: var(--text-dim); font-size: 0.74rem; margin-top: 4px; display: block;">
-              💡 0 extraerá todas las del perfil. Usa 5 o 10 para una prueba veloz.
+              Nota: 0 extraerá todas las del perfil. Usa 5 o 10 para una prueba veloz.
             </small>
           </div>
 
@@ -1418,7 +1703,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
           <!-- Botón de Ejecutar -->
           <button id="btnEjecutar" class="btn btn-gradient" style="width: 100%; margin-top: 10px; padding: 13px;" onclick="iniciarExtraccion()">
-            <span id="btnIcon">🚀</span>
+            <span id="btnIcon"></span>
             <span id="btnText">Iniciar Extracción</span>
           </button>
         </div>
@@ -1426,7 +1711,7 @@ HTML_PAGE = """<!DOCTYPE html>
         <!-- Tarjeta de Perfiles Guardados en Disco -->
         <div class="card">
           <div class="card-title">
-            <span>📁 Perfiles Guardados</span>
+            <span>Perfiles Guardados</span>
             <button class="btn btn-secondary btn-sm" onclick="cargarListaPerfiles()">Recargar</button>
           </div>
           <div id="listaPerfilesGuardados" style="display: flex; flex-direction: column; gap: 8px;">
@@ -1463,8 +1748,8 @@ HTML_PAGE = """<!DOCTYPE html>
                 <div class="profile-info">
                   <div class="profile-header-line">
                     <span id="profileUsername" class="profile-username">@usuario</span>
-                    <span id="badgePrivacidad" class="badge-privacy public">🌐 Pública</span>
-                    <span id="badgeVerificado" class="badge-privacy public" style="display: none;">✓ Verificado</span>
+                    <span id="badgePrivacidad" class="badge-privacy public">Pública</span>
+                    <span id="badgeVerificado" class="badge-privacy public" style="display: none;">Verificado</span>
                   </div>
                   <div id="profileFullname" class="profile-fullname">Nombre Completo</div>
                   <div id="profileBio" class="profile-bio">Biografía del usuario...</div>
@@ -1494,52 +1779,63 @@ HTML_PAGE = """<!DOCTYPE html>
               <!-- Dónde se guardó todo (Banner de Almacenamiento) -->
               <div class="storage-banner">
                 <div class="storage-title">
-                  <span>📂 Dónde se guardó la información:</span>
+                  <span>Ubicación de almacenamiento:</span>
                 </div>
                 <div class="storage-row">
                   <div>
                     <span style="font-weight: 600; color: #fff;">Base de Datos JSON:</span>
-                    <div id="rutaJson" class="storage-path">datos_usuario.json</div>
+                    <div id="rutaJson" class="storage-path">Datos Extraídos/datos_usuario.json</div>
                   </div>
-                  <button class="btn btn-secondary btn-sm" onclick="descargarJsonActual()">⬇️ Descargar</button>
+                  <div style="display: flex; gap: 8px;">
+                    <button class="btn btn-secondary btn-sm" onclick="abrirCarpetaDatos()">Abrir Carpeta</button>
+                    <button class="btn btn-secondary btn-sm" onclick="descargarJsonActual()">Descargar</button>
+                  </div>
                 </div>
                 <div class="storage-row">
                   <div>
                     <span style="font-weight: 600; color: #fff;">Multimedia Descargada:</span>
-                    <div id="rutaMultimedia" class="storage-path">descargas_usuario/</div>
+                    <div id="rutaMultimedia" class="storage-path">Descargas Multimedia/descargas_usuario/</div>
                   </div>
-                  <button class="btn btn-secondary btn-sm" onclick="abrirCarpetaDescargas()">📂 Abrir Carpeta</button>
+                  <button class="btn btn-secondary btn-sm" onclick="abrirCarpetaDescargas()">Abrir Carpeta</button>
                 </div>
               </div>
 
               <!-- Navegación por Pestañas -->
               <div class="tabs-nav">
                 <button class="tab-btn active" onclick="cambiarTab('tabPublicaciones', this)">
-                  📸 Publicaciones (<span id="tabCountPosts">0</span>)
+                  Publicaciones (<span id="tabCountPosts">0</span>)
+                </button>
+                <button class="tab-btn" onclick="cambiarTab('tabBigFive', this)" style="color: #d8b4fe; border-color: rgba(168,85,247,0.3);">
+                  Psicología Big Five (IA)
                 </button>
                 <button class="tab-btn" onclick="cambiarTab('tabSeguidores', this)">
-                  👥 Seguidores (<span id="tabCountFollowers">0</span>)
+                  Seguidores (<span id="tabCountFollowers">0</span>)
                 </button>
                 <button class="tab-btn" onclick="cambiarTab('tabSeguidos', this)">
-                  👤 Seguidos (<span id="tabCountFollowing">0</span>)
+                  Seguidos (<span id="tabCountFollowing">0</span>)
                 </button>
                 <button class="tab-btn" onclick="cambiarTab('tabJson', this)">
-                  💻 JSON Crudo
+                  JSON Crudo
                 </button>
               </div>
 
               <!-- Contenido Tab 1: Galería de Publicaciones -->
               <div id="tabPublicaciones" class="tab-pane active">
                 <div class="filter-bar">
-                  <input type="text" id="filtroCaption" class="filter-input" placeholder="🔍 Buscar en descripciones de posts..." oninput="filtrarPosts()">
+                  <input type="text" id="filtroCaption" class="filter-input" placeholder="Buscar en descripciones de posts..." oninput="filtrarPosts()">
                 </div>
                 <div id="galeriaPosts" class="posts-grid"></div>
+              </div>
+
+              <!-- Contenido Tab Big Five (OCEAN) -->
+              <div id="tabBigFive" class="tab-pane">
+                <div id="bigfiveContent"></div>
               </div>
 
               <!-- Contenido Tab 2: Seguidores -->
               <div id="tabSeguidores" class="tab-pane">
                 <div class="filter-bar">
-                  <input type="text" id="filtroSeguidores" class="filter-input" placeholder="🔍 Filtrar seguidores por usuario o nombre..." oninput="filtrarSeguidores()">
+                  <input type="text" id="filtroSeguidores" class="filter-input" placeholder="Filtrar seguidores por usuario o nombre..." oninput="filtrarSeguidores()">
                 </div>
                 <div id="listaSeguidoresGrid" class="users-list-grid"></div>
               </div>
@@ -1547,7 +1843,7 @@ HTML_PAGE = """<!DOCTYPE html>
               <!-- Contenido Tab 3: Seguidos -->
               <div id="tabSeguidos" class="tab-pane">
                 <div class="filter-bar">
-                  <input type="text" id="filtroSeguidos" class="filter-input" placeholder="🔍 Filtrar seguidos..." oninput="filtrarSeguidos()">
+                  <input type="text" id="filtroSeguidos" class="filter-input" placeholder="Filtrar seguidos..." oninput="filtrarSeguidos()">
                 </div>
                 <div id="listaSeguidosGrid" class="users-list-grid"></div>
               </div>
@@ -1617,17 +1913,17 @@ HTML_PAGE = """<!DOCTYPE html>
 
     async function verificarCookiesManual() {
       const btn = document.getElementById("btnCheckCookies");
-      btn.innerText = "⏳ Comprobando...";
+      btn.innerText = "Comprobando...";
       btn.disabled = true;
       try {
         const res = await fetch("/api/check_cookies");
         const data = await res.json();
         actualizarBadgeCookies(data);
-        alert(data.valido ? "✓ Cookies de sesión válidas en .env" : "✗ Error: " + data.motivo);
+        alert(data.valido ? "Cookies de sesión válidas en .env" : "Error: " + data.motivo);
       } catch (err) {
         alert("Error de conexión al comprobar cookies.");
       } finally {
-        btn.innerText = "🔄 Comprobar";
+        btn.innerText = "Comprobar";
         btn.disabled = false;
       }
     }
@@ -1713,10 +2009,10 @@ HTML_PAGE = """<!DOCTYPE html>
       const badgePriv = document.getElementById("badgePrivacidad");
       if (data.es_privado) {
         badgePriv.className = "badge-privacy private";
-        badgePriv.innerText = "🔒 Cuenta Privada";
+        badgePriv.innerText = "Cuenta Privada";
       } else {
         badgePriv.className = "badge-privacy public";
-        badgePriv.innerText = "🌐 Cuenta Pública";
+        badgePriv.innerText = "Cuenta Pública";
       }
 
       const badgeVerif = document.getElementById("badgeVerificado");
@@ -1730,8 +2026,8 @@ HTML_PAGE = """<!DOCTYPE html>
       document.getElementById("statExtraidas").innerText = totalPostsExtraidos;
 
       // Dónde se guardó
-      document.getElementById("rutaJson").innerText = data.ruta_json || `datos_${usuarioActual}.json`;
-      document.getElementById("rutaMultimedia").innerText = data.carpeta_descargas || `descargas_${usuarioActual}/`;
+      document.getElementById("rutaJson").innerText = data.ruta_json || `Datos Extraídos/datos_${usuarioActual}.json`;
+      document.getElementById("rutaMultimedia").innerText = data.carpeta_descargas || `Descargas Multimedia/descargas_${usuarioActual}/`;
 
       // Conteos de pestañas
       document.getElementById("tabCountPosts").innerText = totalPostsExtraidos;
@@ -1740,11 +2036,155 @@ HTML_PAGE = """<!DOCTYPE html>
 
       // Renderizar listas
       renderizarPosts(data.publicaciones || []);
+      renderizarBigFive(data.analisis_bigfive);
       renderizarUsuariosLista(data.seguidores_lista || [], "listaSeguidoresGrid");
       renderizarUsuariosLista(data.seguidos_lista || [], "listaSeguidosGrid");
 
       // JSON Crudo
       document.getElementById("jsonViewer").innerText = JSON.stringify(data, null, 2);
+    }
+
+    function renderizarBigFive(bf) {
+      const container = document.getElementById("bigfiveContent");
+      if (!container) return;
+      container.innerHTML = "";
+
+      if (!bf || !bf.dimensiones_ocean) {
+        container.innerHTML = `
+          <div class="empty-state" style="text-align: center; padding: 40px 20px;">
+            <h3 style="color: #fff; margin-bottom: 8px;">Análisis Psicométrico Big Five (OCEAN)</h3>
+            <p style="color: var(--text-muted); max-width: 500px; margin: 0 auto 20px auto; font-size: 0.9rem;">
+              Determina el perfil psicológico del usuario evaluando sus 10 publicaciones y biografía mediante Google Gemini AI.
+            </p>
+            <button class="btn btn-gradient" onclick="ejecutarBigFiveDesdeUI()">
+              Ejecutar Análisis con Gemini AI
+            </button>
+          </div>
+        `;
+        return;
+      }
+
+      const dims = bf.dimensiones_ocean || {};
+      const dimConfigs = [
+        { key: "openness", barClass: "bar-openness" },
+        { key: "conscientiousness", barClass: "bar-conscientiousness" },
+        { key: "extraversion", barClass: "bar-extraversion" },
+        { key: "agreeableness", barClass: "bar-agreeableness" },
+        { key: "neuroticism", barClass: "bar-neuroticism" },
+      ];
+
+      let traitsHtml = "";
+      dimConfigs.forEach(cfg => {
+        const d = dims[cfg.key] || {};
+        const nombre = d.nombre_es || cfg.key;
+        const score = d.puntuacion || 0;
+        const nivel = d.nivel || "N/D";
+        const interpretacion = d.interpretacion || "";
+        const evidencias = d.evidencias || [];
+
+        let evidenciasHtml = "";
+        if (evidencias.length > 0) {
+          evidenciasHtml = `
+            <div class="trait-evidences">
+              <strong style="color: #e2e8f0;">Evidencias en posts / bio:</strong>
+              <ul>
+                ${evidencias.map(e => `<li>${e}</li>`).join("")}
+              </ul>
+            </div>
+          `;
+        }
+
+        traitsHtml += `
+          <div class="trait-card">
+            <div class="trait-header">
+              <div class="trait-title">
+                <span>${nombre}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span class="badge-ocean" style="background: rgba(255,255,255,0.08);">${nivel}</span>
+                <span class="trait-score-val">${score}%</span>
+              </div>
+            </div>
+            <div class="trait-bar-track">
+              <div class="trait-bar-fill ${cfg.barClass}" style="width: ${score}%;"></div>
+            </div>
+            <div class="trait-interpret">${interpretacion}</div>
+            ${evidenciasHtml}
+          </div>
+        `;
+      });
+
+      const meta = bf.metadata_enriquecimiento || {};
+      const modelo = meta.modelo_gemini || "Gemini Flash";
+
+      container.innerHTML = `
+        <div class="bigfive-box">
+          <div class="bigfive-header-card">
+            <div class="bigfive-header-top">
+              <div>
+                <div class="bigfive-archetype">${bf.arquetipo_dominante || 'Personalidad Digital'}</div>
+                <div style="color: var(--text-dim); font-size: 0.8rem; margin-top: 4px;">
+                  Basado en el análisis de 10 posts y biografía pública
+                </div>
+              </div>
+              <div class="bigfive-badges">
+                <span class="badge-ocean badge-archetype">Arquetipo Principal</span>
+                <span class="badge-ocean badge-predominant">Rasgo: ${bf.rasgo_predominante || 'Predominante'}</span>
+                <span class="badge-ocean badge-model">Modelo: ${modelo}</span>
+              </div>
+            </div>
+            <div class="bigfive-summary">
+              ${bf.resumen_ejecutivo || ''}
+            </div>
+            <div style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <span style="color: var(--text-dim); font-size: 0.8rem;">
+                Guardado en: <strong style="color: #cbd5e1;">Análisis BigFive/analisis_bigfive_${usuarioActual}.json</strong>
+              </span>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-secondary btn-sm" onclick="abrirCarpetaAnalisis()">
+                  Abrir Carpeta
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="ejecutarBigFiveDesdeUI()">
+                  Re-analizar con Gemini AI
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="bigfive-traits-grid">
+            ${traitsHtml}
+          </div>
+
+          <div class="bigfive-academic-box">
+            <strong>Implicaciones de Arquitectura y Ética de Sistemas:</strong><br>
+            ${bf.conclusion_academica || 'El enriquecimiento automatizado mediante modelos fundacionales permite transformar datos no estructurados en perfiles multidimensionales bajo estándares psicológicos establecidos.'}
+          </div>
+        </div>
+      `;
+    }
+
+    async function ejecutarBigFiveDesdeUI() {
+      if (!usuarioActual) {
+        alert("Primero carga o extrae un perfil.");
+        return;
+      }
+      try {
+        const res = await fetch("/api/ejecutar_bigfive", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ usuario: usuarioActual })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "No se pudo iniciar el análisis");
+
+        iniciarPollingLogs();
+
+        setTimeout(async () => {
+          cargarDatosPerfil(usuarioActual);
+        }, 7000);
+      } catch (err) {
+        alert("Error: " + err.message);
+      }
     }
 
     function renderizarPosts(posts) {
@@ -1779,14 +2219,14 @@ HTML_PAGE = """<!DOCTYPE html>
         if (esVideo && mediaSrc.endsWith(".mp4")) {
           mediaHtml = `
             <div class="post-media-box">
-              <span class="post-badge-type">🎬 Video</span>
+              <span class="post-badge-type">Video</span>
               <video src="${mediaSrc}" controls preload="metadata"></video>
             </div>
           `;
         } else if (mediaSrc) {
           mediaHtml = `
             <div class="post-media-box">
-              <span class="post-badge-type">${p.tipo === 'reel' ? '🎬 Reel' : '📸 Foto'}</span>
+              <span class="post-badge-type">${p.tipo === 'reel' ? 'Reel' : 'Foto'}</span>
               <img src="${mediaSrc}" alt="Post media" loading="lazy">
             </div>
           `;
@@ -1812,7 +2252,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
         // Formato para Likes (Normales u Ocultos)
         const likesHtml = p.likes_ocultos
-          ? `<span title="${(p.likes_texto || 'Likes ocultados por el autor').replace(/"/g, '&quot;')}" style="color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 4px; padding: 2px 7px; font-size: 0.78rem; font-weight: 600; cursor: help;">🔒 Oculto</span>`
+          ? `<span title="${(p.likes_texto || 'Likes ocultados por el autor').replace(/"/g, '&quot;')}" style="color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 4px; padding: 2px 7px; font-size: 0.78rem; font-weight: 600; cursor: help;">Oculto</span>`
           : `<span>${p.likes_texto || ((p.likes !== undefined && p.likes !== null ? p.likes : 0) + ' likes')}</span>`;
 
         // Formato para Comentarios (Conteo real o Desactivados)
@@ -1825,11 +2265,11 @@ HTML_PAGE = """<!DOCTYPE html>
           <div class="post-body">
             <div class="post-stats-row">
               <div class="post-stat-item stat-likes">
-                <span>❤️</span>
+                <span style="font-size:0.75rem;font-weight:600;color:var(--text-muted);">Likes:</span>
                 ${likesHtml}
               </div>
               <div class="post-stat-item stat-comments">
-                <span>💬</span>
+                <span style="font-size:0.75rem;font-weight:600;color:var(--text-muted);">Comentarios:</span>
                 ${commentsHtml}
               </div>
             </div>
@@ -1956,7 +2396,7 @@ HTML_PAGE = """<!DOCTYPE html>
       } catch (err) {
         alert("Error: " + err.message);
         btn.disabled = false;
-        document.getElementById("btnIcon").innerText = "🚀";
+        document.getElementById("btnIcon").innerText = "";
         document.getElementById("btnText").innerText = "Iniciar Extracción";
       }
     }
@@ -1975,10 +2415,10 @@ HTML_PAGE = """<!DOCTYPE html>
           const term = document.getElementById("terminalLogs");
           term.innerHTML = (data.logs || []).map(l => {
             let cls = "log-line";
-            if (l.includes("[✓]") || l.includes("🎉") || l.includes("EXITO")) cls += " log-success";
-            else if (l.includes("[!]") || l.includes("Aviso")) cls += " log-warn";
+            if (l.includes("[OK]") || l.includes("EXITO") || l.includes("COMPLETADO")) cls += " log-success";
+            else if (l.includes("[!]") || l.includes("Aviso") || l.includes("[AVISO]")) cls += " log-warn";
             else if (l.includes("[ERROR]")) cls += " log-error";
-            else if (l.includes("[*]")) cls += " log-info";
+            else if (l.includes("[*]") || l.includes("[INFO]")) cls += " log-info";
             return `<div class="${cls}">${l}</div>`;
           }).join("");
           term.scrollTop = term.scrollHeight;
@@ -1993,7 +2433,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
             const btn = document.getElementById("btnEjecutar");
             btn.disabled = false;
-            document.getElementById("btnIcon").innerText = "🚀";
+            document.getElementById("btnIcon").innerText = "";
             document.getElementById("btnText").innerText = "Iniciar Extracción";
             document.getElementById("progressBar").style.display = "none";
 
@@ -2025,15 +2465,43 @@ HTML_PAGE = """<!DOCTYPE html>
     async function abrirCarpetaDescargas() {
       if (!usuarioActual) return;
       try {
-        const res = await fetch(`/api/open_folder?usuario=${encodeURIComponent(usuarioActual)}`);
+        const res = await fetch(`/api/open_folder?tipo=descargas&usuario=${encodeURIComponent(usuarioActual)}`);
         const data = await res.json();
         if (data.ok) {
-          alert(`Carpeta abierta en Windows Explorer:\n${data.ruta}`);
+          alert(`Carpeta de descargas abierta:\n${data.ruta}`);
         } else {
           alert("Error: " + data.error);
         }
       } catch (err) {
         alert("No se pudo abrir la carpeta en el explorador.");
+      }
+    }
+
+    async function abrirCarpetaDatos() {
+      try {
+        const res = await fetch(`/api/open_folder?tipo=datos`);
+        const data = await res.json();
+        if (data.ok) {
+          alert(`Carpeta 'Datos Extraídos' abierta:\n${data.ruta}`);
+        } else {
+          alert("Error: " + data.error);
+        }
+      } catch (err) {
+        alert("No se pudo abrir la carpeta 'Datos Extraídos'.");
+      }
+    }
+
+    async function abrirCarpetaAnalisis() {
+      try {
+        const res = await fetch(`/api/open_folder?tipo=analisis`);
+        const data = await res.json();
+        if (data.ok) {
+          alert(`Carpeta 'Análisis BigFive' abierta:\n${data.ruta}`);
+        } else {
+          alert("Error: " + data.error);
+        }
+      } catch (err) {
+        alert("No se pudo abrir la carpeta 'Análisis BigFive'.");
       }
     }
   </script>
@@ -2061,16 +2529,16 @@ def iniciar_servidor_web(puerto: int = 5000, abrir_navegador: bool = True):
 
     url = f"http://localhost:{puerto}"
     print("=" * 65)
-    print("🚀 INSTAGRAM SCRAPER - PANEL DE CONTROL WEB")
+    print("INSTAGRAM SCRAPER - PANEL DE CONTROL WEB")
     print("=" * 65)
     print(f"Servidor iniciado exitosamente en:")
-    print(f"👉 {url}")
+    print(f"URL local: {url}")
     print("\nCaracterísticas activas:")
-    print("  ✓ Comprobación en vivo del estado de cookies (.env)")
-    print("  ✓ Selector de cantidad de publicaciones (ej. 5, 10, todas)")
-    print("  ✓ Extracción automática de perfil, bio, posts, seguidores y seguidos")
-    print("  ✓ Descarga y previsualización de imágenes y videos (.mp4)")
-    print("  ✓ Explorador de archivos guardados y apertura directa en Explorer")
+    print("  - Comprobación en vivo del estado de cookies (.env)")
+    print("  - Selector de cantidad de publicaciones (ej. 5, 10, todas)")
+    print("  - Extracción automática de perfil, bio, posts, seguidores y seguidos")
+    print("  - Descarga y previsualización de imágenes y videos (.mp4)")
+    print("  - Explorador de archivos guardados y apertura directa en Explorer")
     print("\n[Presiona Ctrl+C en esta consola para detener el servidor]")
     print("=" * 65)
 
