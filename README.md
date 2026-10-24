@@ -132,10 +132,7 @@ instagram-scraper/
 ├── .env.example                            # Plantilla de variables de entorno (Cookies + GEMINI_API_KEY)
 ├── .gitignore                              # Exclusión de .env, carpetas de datos reales y descargas
 ├── README.md                               # Documentación del proyecto
-├── INFORME_BIGFIVE.docx                    # Memoria técnica formal Big Five en Word
-├── INFORME_BIGFIVE.md                      # Memoria técnica formal Big Five en Markdown
-├── Informe_Tecnico_Instagram_Scraper.docx  # Memoria técnica formal general en Word
-└── Informe_Tecnico_Instagram_Scraper.pdf   # Memoria técnica formal general en PDF
+
 ```
 
 ---
