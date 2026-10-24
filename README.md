@@ -18,12 +18,13 @@ Para fines de evaluación en la materia de **Arquitectura de Software**, se docu
 |---|---|---|
 | **Método de Acceso** | Sin sesión o con login manual en formulario (generaba reCAPTCHAs y bloqueos HTTP 429). | **Inyección de Cookies en `.env`** (`sessionid`, `ds_user_id`, `csrftoken`), emulando una sesión humana legítima sin captchas ni bloqueos. |
 | **Límite de Posts** | Limitado por Instagram a 12 o 24 posts en modo anónimo. | **100% de las publicaciones** (50 de 50 en la cuenta asignada `@sausage_player`), recorridas una a una. |
-| **Descarga Multimedia** | Ninguna (solo se guardaba el texto alternativo `alt`). | **Descarga completa a disco**: fotos en alta resolución (`.jpg`), carruseles y reels/videos nativos (`.mp4`) en `descargas_<usuario>/`. |
+| **Descarga Multimedia** | Ninguna (solo se guardaba el texto alternativo `alt`). | **Descarga completa a disco**: fotos en alta resolución (`.jpg`), carruseles y reels/videos nativos (`.mp4`) en `Descargas Multimedia/descargas_<usuario>/`. |
 | **Manejo de Videos / Reels** | No soportado; bloqueado por flujos en memoria `blob:https://...`. | **Superación de blobs**: inspección de componentes React (`__reactFiber`) para extraer el manifiesto MPEG-DASH `<BaseURL>` y descargar el video real. |
 | **Reacciones (Likes)** | No disponible en la versión inicial. | **Conteo exacto y detección de Likes Ocultos** (`likes_ocultos: true`, `likes: null`) cuando el autor los oculta. |
 | **Comentarios** | No disponible en la versión inicial. | **Conteo real y oficial** (`Ver los X comentarios`), filtrando respuestas legítimas y descartando el pie de foto del autor y dots de carrusel. |
 | **Seguidores y Seguidos** | Solo conteos numéricos de la cabecera. | **Listas completas de usuarios**: extracción de `@usuario`, nombre visible, URL y avatar mediante scroll modal con Set anti-duplicados. |
 | **Interfaz de Usuario** | Únicamente línea de comandos (CLI) con pausas manuales. | **Panel de Control Web (`app.py`)** con terminal de logs en vivo, visor de galería y comprobador de cookies. |
+| **Enriquecimiento con IA** | Inexistente (solo recolección de datos crudos sin interpretación). | **Fase 2: Perfilado Psicométrico Big Five (OCEAN)** con Google Gemini AI (`gemini-3.8-flash`), determinando arquetipos, puntuaciones porcentuales y evidencias empíricas. |
 
 ---
 
@@ -42,8 +43,9 @@ Organizar en un documento estructurado `datos_<usuario>.json` los campos íntegr
   - Conteo de comentarios y muestra de respuestas.
   - Enlaces de CDN y rutas de archivos locales descargados (`.jpg` y `.mp4`).
 - Listas de usuarios de Seguidores y Seguidos.
+- **Enriquecimiento Psicológico (Fase 2)**: Metadatos psicométricos con puntuación de rasgos OCEAN, arquetipo de usuario y conclusión académica.
 
-> **Nota sobre privacidad:** Por respeto a la privacidad de datos reales, los archivos de captura reales (`datos_sausage_player.json` y la carpeta `descargas_sausage_player/`) **no se publican en el repositorio** y están protegidos por `.gitignore`. Se incluye el archivo [ejemplo_datos.json](ejemplo_datos.json) con datos estructurados de referencia.
+> **Nota sobre privacidad:** Por respeto a la privacidad de datos reales, los archivos de captura reales (`datos_sausage_player.json` y la carpeta `Descargas Multimedia/descargas_sausage_player/`) **no se publican en el repositorio** y están protegidos por `.gitignore`. Se incluye el archivo [ejemplo_datos.json](ejemplo_datos.json) con datos estructurados de referencia.
 
 ---
 
@@ -52,10 +54,11 @@ Organizar en un documento estructurado `datos_<usuario>.json` los campos íntegr
 | Herramienta | Rol en la Arquitectura | Justificación Técnica |
 |---|---|---|
 | **Python 3.10+** | Lenguaje Principal | Manejo de flujos de datos, peticiones y estructuración JSON. |
-| **Playwright (Chromium)** | Automatización Web | Emulación de navegador real capaz de ejecutar JavaScript moderno y Single Page Applications (SPA). |
-| **python-dotenv** | Seguridad y Configuración | Carga de variables de entorno locales desde `.env` sin exponer credenciales en el código. |
-| **Requests** | Validación Previa | Comprobación de estado HTTP de cookies antes de iniciar el navegador gráfico. |
-| **Vanilla HTML/CSS/JS** | Dashboard Web (`app.py`) | Panel de control local sin sobrecarga de frameworks externos pesados. |
+| **Playwright (Chromium)** | Automatización Web (Fase 1) | Emulación de navegador real capaz de ejecutar JavaScript moderno y Single Page Applications (SPA). |
+| **Google Gemini REST API** | Enriquecimiento con IA (Fase 2) | Inferencia de lenguaje natural para psicometría computacional (Big Five/OCEAN) con fallback dinámico de modelos (`gemini-3.8-flash`, `gemini-3.5-flash-lite`, etc.) y respuesta JSON estructurada. |
+| **python-dotenv** | Seguridad y Configuración | Carga de variables de entorno locales desde `.env` sin exponer credenciales ni claves de API en el código. |
+| **Requests** | Validación y Comunicación API | Comprobación de cookies de Instagram y consumo REST liviano de Gemini AI sin dependencias externas pesadas. |
+| **Vanilla HTML/CSS/JS** | Dashboard Web (`app.py`) | Panel de control local interactivo con soporte de pestañas, logs en vivo y visualizador psicométrico reactivo. |
 
 *(Herramientas evaluadas previamente como `beautifulsoup4`, `Scrapy` o `Selenium` no forman parte del pipeline de producción debido a los bloqueos de renderizado dinámico de Instagram).*
 
@@ -76,22 +79,63 @@ Organizar en un documento estructurado `datos_<usuario>.json` los campos íntegr
    Si la cuenta tiene videos archivados exclusivamente en su pestaña de Reels, el script navega a `/<usuario>/reels/` y procesa los videos restantes.
 6. **Extracción de Seguidores y Seguidos**:
    Abre los modales correspondientes y realiza scroll continuo manteniendo un `Set` en memoria para descartar duplicados hasta alcanzar el total deseado.
+7. **Enriquecimiento Psicométrico Big Five (OCEAN)**:
+   A partir del archivo JSON extraído en la Fase 1, el módulo `analizar_personalidad_gemini.py` toma las primeras 10 publicaciones y la biografía del usuario. Se envía un prompt de psicometría computacional a la API de Google Gemini (vía REST con fallback dinámico entre modelos recientes como `gemini-3.8-flash`). El análisis genera puntuaciones del 0 al 100% para las 5 dimensiones OCEAN, un arquetipo de personalidad, evidencias textuales extraídas del contenido y una conclusión ética/arquitectónica. El resultado se guarda en `analisis_bigfive_<usuario>.json` y enriquece `datos_<usuario>.json`.
 
 ---
+
+## Fase 2: Módulo Psicométrico Big Five (OCEAN) con Gemini AI
+
+El módulo psicométrico implementa técnicas de **Psicometría Computacional** y **Minería de Huella Digital** para analizar el perfil conductual del usuario a partir de sus contenidos públicos en Instagram.
+
+### 1. ¿Qué es el Modelo Big Five (OCEAN)?
+El modelo de los Cinco Grandes Factores de la Personalidad es el estándar científico más respaldado en psicología moderna para clasificar la personalidad en 5 dimensiones continuas:
+- **O (Openness - Apertura a la Experiencia)**: Creatividad, curiosidad intelectual, estética, variedad temática y originalidad.
+- **C (Conscientiousness - Responsabilidad / Tesón)**: Organización, constancia, atención al detalle y orientación a metas.
+- **E (Extraversion - Extraversión)**: Sociabilidad, dinamismo, energía expresiva y búsqueda de interacción social.
+- **A (Agreeableness - Amabilidad / Afabilidad)**: Empatía, calidez, tono cooperativo y cercanía con la comunidad.
+- **N (Neuroticism - Reactividad Emocional)**: Grado de vulnerabilidad o reactividad emocional frente a estabilidad y templanza.
+
+### 2. ¿Qué se usa en esta función?
+- **Motor de Inferencia LLM**: Google Gemini REST API (endpoint `/v1beta/models/{modelo}:generateContent`).
+- **Selección Dinámica de Modelos**: Sistema de auto-descubrimiento y fallback que consulta los modelos activos en la cuenta del usuario, priorizando versiones optimizadas (`gemini-3.8-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`).
+- **Determinismo y Estructura**: Invocación con `temperature: 0.2` y `responseMimeType: "application/json"` para garantizar una salida JSON válida según un esquema estricto (arquetipo, rasgo dominante, dimensiones con puntajes 0-100%, nivel y evidencias).
+- **Consumo HTTP Nativo**: Uso directo de la biblioteca estándar `requests` sin atarse a SDKs experimentales que puedan generar conflictos de dependencias en Python 3.10+.
+- **Seguridad**: Inyección estricta de `GEMINI_API_KEY` desde `.env` local, sin transmisión en repositorios ni exposición en el cliente.
+
+### 3. ¿Dónde se usa en el proyecto?
+- **Motor Backend / CLI (`analizar_personalidad_gemini.py`)**: Script autónomo invocable por terminal (`python analizar_personalidad_gemini.py <usuario>`) con visualización gráfica en consola mediante barras de progreso ASCII (`████░░░░`).
+- **Servidor Web y Endpoints REST (`app.py`)**:
+  - `GET /api/bigfive?usuario=<user>`: Lee y entrega el JSON psicométrico para renderizado asíncrono.
+  - `POST /api/ejecutar_bigfive`: Dispara la inferencia de Gemini en un hilo en segundo plano (`threading.Thread`) sin bloquear la navegación ni la terminal de logs del panel.
+- **Panel de Control Web Frontend (`app.py` - Pestaña "Psicología Big Five")**:
+  - **Header Card**: Muestra el arquetipo dominante (ej. *'El Conector Lúdico'*), el rasgo predominante y el modelo Gemini exacto utilizado.
+  - **Métricas OCEAN**: 5 tarjetas interactivas con barras de progreso coloreadas según la dimensión, porcentaje numérico (0-100%) e indicador de nivel (Alto, Medio, Bajo).
+  - **Evidencias Empíricas**: Citas textuales extraídas de publicaciones o de la biografía que sustentan cada rasgo asignado.
+  - **Conclusión Académica**: Reflexión ética sobre el perfilado digital y el impacto en arquitectura de software.
+- **Persistencia Dual Organizada**:
+  - Archivo exclusivo: `Análisis BigFive/analisis_bigfive_<usuario>.json`.
+  - Integración en archivo maestro: Incrustado dentro del campo `"analisis_bigfive"` en `Datos Extraídos/datos_<usuario>.json`.
 
 ## Estructura del Repositorio
 
 ```text
 instagram-scraper/
+├── Datos Extraídos/                        # Carpeta con JSONs estructurados de perfiles (datos_*.json)
+├── Análisis BigFive/                       # Carpeta con análisis psicométricos de Gemini AI (analisis_bigfive_*.json)
+├── Descargas Multimedia/                   # Carpeta contenedora de descargas (descargas_<usuario>/)
 ├── app.py                                  # Panel de Control Web y servidor local (localhost:5000)
-├── extraer_playwright.py                   # Motor Playwright consolidado
+├── extraer_playwright.py                   # Fase 1: Motor Playwright de extracción y descargas
+├── analizar_personalidad_gemini.py         # Fase 2: Motor de enriquecimiento psicológico (Big Five / OCEAN)
 ├── ejemplo_datos.json                      # Estructura de salida JSON con datos de ejemplo
 ├── requirements.txt                        # Dependencias de Python
-├── .env.example                            # Plantilla de variables de entorno
-├── .gitignore                              # Exclusión de .env, datos reales y descargas
+├── .env.example                            # Plantilla de variables de entorno (Cookies + GEMINI_API_KEY)
+├── .gitignore                              # Exclusión de .env, carpetas de datos reales y descargas
 ├── README.md                               # Documentación del proyecto
-├── Informe_Tecnico_Instagram_Scraper.docx  # Memoria técnica formal en Word
-└── Informe_Tecnico_Instagram_Scraper.pdf   # Memoria técnica formal en PDF
+├── INFORME_BIGFIVE.docx                    # Memoria técnica formal Big Five en Word
+├── INFORME_BIGFIVE.md                      # Memoria técnica formal Big Five en Markdown
+├── Informe_Tecnico_Instagram_Scraper.docx  # Memoria técnica formal general en Word
+└── Informe_Tecnico_Instagram_Scraper.pdf   # Memoria técnica formal general en PDF
 ```
 
 ---
@@ -126,28 +170,40 @@ IG_DS_USER_ID=tu_ds_user_id_aqui
 IG_CSRFTOKEN=tu_csrftoken_aqui
 ```
 
-### 3. Ejecución
+### 3. Configurar API Key de Gemini en `.env` (Fase 2)
+
+Para la fase de enriquecimiento psicométrico, agrega tu clave gratuita obtenida de Google AI Studio en el archivo `.env`:
+```ini
+GEMINI_API_KEY=AIzaSy...tu_clave_aqui
+```
+
+> **Aviso de Seguridad:** La clave `GEMINI_API_KEY` se carga **exclusivamente de forma local** desde `.env`. Nunca se sube al repositorio ni se comparte en texto plano.
+
+---
+
+### 4. Ejecución
 
 #### Opción A: Mediante el Panel de Control Web (Recomendado)
 ```powershell
 python app.py
 ```
-Abre en tu navegador `http://localhost:5000` para operar con interfaz gráfica, ver la terminal de logs en vivo y previsualizar publicaciones y multimedia.
+Abre en tu navegador `http://localhost:5000` para:
+- Iniciar extracciones con Playwright y ver terminal de logs en tiempo real.
+- Visualizar la pestaña **Psicología Big Five (IA)** con gráficos de barras OCEAN y evidencias citadas.
+- Re-ejecutar inferencias con Gemini AI en un clic.
 
-#### Opción B: Por Línea de Comandos (CLI)
+#### Opción B: Motor de Extracción por CLI (Fase 1)
 ```powershell
-# Modo automático completo
+# Extraer publicaciones del perfil
 python extraer_playwright.py --auto
-
-# Extraer un número específico de posts (ej. 10 publicaciones)
-python extraer_playwright.py --max-posts 10
-
-# Modo en segundo plano (headless)
-python extraer_playwright.py --auto --headless
-
-# Solo perfil básico (sin multimedia)
-python extraer_playwright.py --solo-perfil
 ```
+
+#### Opción C: Motor de Enriquecimiento Psicométrico por CLI (Fase 2)
+```powershell
+# Analiza los 10 primeros posts y bio con Gemini AI bajo el modelo OCEAN
+python analizar_personalidad_gemini.py
+```
+Genera el reporte en consola con barras de progreso y guarda los resultados en `analisis_bigfive_sausage_player.json` y `datos_sausage_player.json`.
 
 ---
 
@@ -155,10 +211,10 @@ python extraer_playwright.py --solo-perfil
 
 Al mantener este repositorio en Git:
 
-* **Archivos para control de versiones:** `extraer_playwright.py`, `app.py`, `requirements.txt`, `.env.example`, `.gitignore`, `README.md`, `ejemplo_datos.json` e informes técnicos.
-* **Archivos que NUNCA se suben (ignorados en `.gitignore`):**
-  * `.env` (contiene la cookie privada de sesión).
-  * `datos_*.json` (datos reales recolectados).
+* **Archivos para control de versiones (incluidos):** `extraer_playwright.py`, `analizar_personalidad_gemini.py`, `app.py`, `requirements.txt`, `.env.example`, `.gitignore`, `README.md`, `ejemplo_datos.json` e informes técnicos.
+* **Archivos que no se suben al repositorio (ignorados en `.gitignore`):**
+  * `.env` (contiene cookies de Instagram y GEMINI_API_KEY privada).
+  * `datos_*.json` y `analisis_bigfive_*.json` (datos reales recolectados).
   * `descargas_*/` (imágenes y videos descargados).
   * `.venv/` y `__pycache__/`.
 
