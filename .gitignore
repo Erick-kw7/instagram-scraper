@@ -16,7 +16,13 @@ env/
 
 # Datos extraídos y descargas multimedia de perfiles
 datos_*.json
+analisis_bigfive_*.json
 descargas_*/
+Datos Extraidos/
+Datos Extraídos/
+Análisis BigFive/
+Analisis BigFive/
+Descargas Multimedia/
 *.prev.json
 
 # Archivos de prueba temporales
