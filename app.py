@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 =============================================================================
 INSTAGRAM SCRAPER - PANEL DE CONTROL WEB INTERACTIVO
@@ -41,10 +42,12 @@ BASE = Path(__file__).resolve().parent
 DIR_DATOS = BASE / "Datos Extraídos"
 DIR_DATOS_FALLBACK = BASE / "Datos Extraidos"
 DIR_ANALISIS = BASE / "Análisis BigFive"
+DIR_BENFORD = BASE / "Análisis Benford"
 DIR_MEDIA = BASE / "Descargas Multimedia"
 
 DIR_DATOS.mkdir(parents=True, exist_ok=True)
 DIR_ANALISIS.mkdir(parents=True, exist_ok=True)
+DIR_BENFORD.mkdir(parents=True, exist_ok=True)
 DIR_MEDIA.mkdir(parents=True, exist_ok=True)
 
 load_dotenv(BASE / ".env")
@@ -186,10 +189,10 @@ def listar_perfiles_guardados() -> list[dict]:
 # ============================================================
 class InstagramScraperHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        # Silenciar logs excesivos de peticiones estáticas
+        # Silenciar los logs de peticiones HTTP (GET /api/progress, etc.) para mantener la terminal limpia
         pass
 
-    def send_json(self, data, status=200):
+    def enviar_json(self, data, status=200):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -224,7 +227,7 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
         if path == "/api/status":
             cookies_status = verificar_estado_cookies()
             perfiles = listar_perfiles_guardados()
-            self.send_json({
+            self.enviar_json({
                 "cookies": cookies_status,
                 "target_default": TARGET_DEFAULT,
                 "ds_user_id": DS_USER_ID,
@@ -241,13 +244,13 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
         # 3. API Verificación activa de cookies
         if path == "/api/check_cookies":
             res = verificar_estado_cookies()
-            self.send_json(res)
+            self.enviar_json(res)
             return
 
         # 4. API Listar perfiles guardados
         if path == "/api/profiles":
             perfiles = listar_perfiles_guardados()
-            self.send_json({"perfiles": perfiles})
+            self.enviar_json({"perfiles": perfiles})
             return
 
         # 5. API Obtener datos de un usuario
@@ -259,19 +262,19 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
             if not archivo.exists():
                 archivo = BASE / f"datos_{usuario}.json"
             if not archivo.exists():
-                self.send_json({"error": f"No se encontró el archivo datos_{usuario}.json en '{DIR_DATOS.name}' ni en la raíz."}, status=404)
+                self.enviar_json({"error": f"No se encontró el archivo datos_{usuario}.json en '{DIR_DATOS.name}' ni en la raíz."}, status=404)
                 return
             try:
                 data = json.loads(archivo.read_text(encoding="utf-8"))
-                self.send_json(data)
+                self.enviar_json(data)
             except Exception as e:
-                self.send_json({"error": str(e)}, status=500)
+                self.enviar_json({"error": str(e)}, status=500)
             return
 
         # 6. API Progreso de extracción
         if path == "/api/progress":
             with LOCK_ESTADO:
-                self.send_json({
+                self.enviar_json({
                     "activo": ESTADO_TRABAJO["activo"],
                     "usuario": ESTADO_TRABAJO["usuario"],
                     "paso": ESTADO_TRABAJO["paso"],
@@ -332,7 +335,7 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(content)
                 return
-            self.send_json({"error": "Archivo no encontrado"}, status=404)
+            self.enviar_json({"error": "Archivo no encontrado"}, status=404)
             return
 
         # 9. Abrir carpeta en el explorador de Windows
@@ -343,6 +346,8 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
                 carpeta = DIR_DATOS if DIR_DATOS.exists() else DIR_DATOS_FALLBACK
             elif tipo == "analisis":
                 carpeta = DIR_ANALISIS
+            elif tipo == "benford":
+                carpeta = DIR_BENFORD
             elif tipo == "multimedia":
                 carpeta = DIR_MEDIA
             else:
@@ -353,9 +358,9 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
             try:
                 if sys.platform == "win32":
                     os.startfile(str(carpeta))
-                self.send_json({"ok": True, "ruta": str(carpeta.resolve())})
+                self.enviar_json({"ok": True, "ruta": str(carpeta.resolve())})
             except Exception as e:
-                self.send_json({"error": str(e)}, status=500)
+                self.enviar_json({"error": str(e)}, status=500)
             return
 
         # 10. API Obtener análisis Big Five
@@ -367,10 +372,10 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
             if archivo_bf.exists():
                 try:
                     data = json.loads(archivo_bf.read_text(encoding="utf-8"))
-                    self.send_json(data)
+                    self.enviar_json(data)
                     return
                 except Exception as e:
-                    self.send_json({"error": str(e)}, status=500)
+                    self.enviar_json({"error": str(e)}, status=500)
                     return
             # Si no existe archivo independiente, verificar dentro de datos_{usuario}.json
             archivo_datos = DIR_DATOS / f"datos_{usuario}.json"
@@ -382,11 +387,62 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
                 try:
                     d = json.loads(archivo_datos.read_text(encoding="utf-8"))
                     if "analisis_bigfive" in d and d["analisis_bigfive"]:
-                        self.send_json(d["analisis_bigfive"])
+                        self.enviar_json(d["analisis_bigfive"])
                         return
                 except Exception:
                     pass
-            self.send_json({"error": f"No se encontró análisis Big Five para @{usuario}."}, status=404)
+            self.enviar_json({"error": f"No se encontró análisis Big Five para @{usuario}."}, status=404)
+            return
+
+        # 11. API Obtener análisis Benford (JSON)
+        if path == "/api/benford":
+            usuario = qs.get("usuario", [TARGET_DEFAULT])[0].strip().lstrip("@")
+            tipo_red = qs.get("tipo", ["seguidores"])[0].strip().lower()
+            archivo_bf = DIR_BENFORD / f"analisis_benford_{tipo_red}_{usuario}.json"
+            if archivo_bf.exists():
+                try:
+                    data = json.loads(archivo_bf.read_text(encoding="utf-8"))
+                    self.enviar_json(data)
+                    return
+                except Exception as e:
+                    self.enviar_json({"error": str(e)}, status=500)
+                    return
+            self.enviar_json({"error": f"No se encontró análisis de Benford para @{usuario} ({tipo_red})."}, status=404)
+            return
+
+        # 12. API Descargar gráfico Benford (PNG)
+        if path == "/api/benford_chart":
+            usuario = qs.get("usuario", [TARGET_DEFAULT])[0].strip().lstrip("@")
+            tipo_red = qs.get("tipo", ["seguidores"])[0].strip().lower()
+            archivo_png = DIR_BENFORD / f"grafico_benford_{tipo_red}_{usuario}.png"
+            if archivo_png.exists():
+                content = archivo_png.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(content)))
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                self.wfile.write(content)
+                return
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        # 13. API Descargar libro Excel Benford (.xlsx)
+        if path == "/api/download_benford_excel":
+            usuario = qs.get("usuario", [TARGET_DEFAULT])[0].strip().lstrip("@")
+            tipo_red = qs.get("tipo", ["seguidores"])[0].strip().lower()
+            archivo_xlsx = DIR_BENFORD / f"benford_{tipo_red}_{usuario}.xlsx"
+            if archivo_xlsx.exists():
+                content = archivo_xlsx.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                self.send_header("Content-Disposition", f'attachment; filename="{archivo_xlsx.name}"')
+                self.send_header("Content-Length", str(len(content)))
+                self.end_headers()
+                self.wfile.write(content)
+                return
+            self.enviar_json({"error": "Archivo Excel no encontrado"}, status=404)
             return
 
         self.send_response(404)
@@ -413,7 +469,7 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
 
             with LOCK_ESTADO:
                 if ESTADO_TRABAJO["activo"]:
-                    self.send_json({
+                    self.enviar_json({
                         "error": "Ya hay una extracción en ejecución. Espera a que termine.",
                         "usuario_activo": ESTADO_TRABAJO["usuario"]
                     }, status=409)
@@ -427,7 +483,7 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
             )
             t.start()
 
-            self.send_json({
+            self.enviar_json({
                 "ok": True,
                 "mensaje": f"Extracción iniciada para @{target}",
                 "config": {
@@ -453,7 +509,7 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
 
             try:
                 from analizar_personalidad_gemini import ejecutar_analisis_bigfive
-                def hilo_bf():
+                def hilo_bigfive():
                     try:
                         registrar_log(f"[INFO] Iniciando inferencia Big Five (Gemini AI) para @{target}...")
                         ejecutar_analisis_bigfive(target)
@@ -461,10 +517,46 @@ class InstagramScraperHandler(BaseHTTPRequestHandler):
                     except Exception as err:
                         registrar_log(f"[ERROR] Error en análisis Big Five: {err}")
 
-                threading.Thread(target=hilo_bf, daemon=True).start()
-                self.send_json({"ok": True, "mensaje": f"Análisis Big Five iniciado para @{target}"})
+                threading.Thread(target=hilo_bigfive, daemon=True).start()
+                self.enviar_json({"ok": True, "mensaje": f"Análisis Big Five iniciado para @{target}"})
             except Exception as e:
-                self.send_json({"error": str(e)}, status=500)
+                self.enviar_json({"error": str(e)}, status=500)
+            return
+
+        # 12. Ejecutar análisis Benford
+        if path == "/api/ejecutar_benford":
+            content_length = int(self.headers.get("Content-Length", 0))
+            post_data = self.rfile.read(content_length)
+            try:
+                params = json.loads(post_data.decode("utf-8")) if post_data else {}
+            except Exception:
+                params = {}
+            target = params.get("usuario", TARGET_DEFAULT).strip().lstrip("@")
+            tipo_red = params.get("tipo", "seguidores").strip().lower()
+            limite = int(params.get("limite", 0))
+            usar_json = bool(params.get("from_json", True))
+
+            try:
+                from analizar_benford import ejecutar_analisis_benford
+                def hilo_benford():
+                    try:
+                        registrar_log(f"[INFO] Iniciando Análisis Benford ({tipo_red}) para @{target}...")
+                        ejecutar_analisis_benford(
+                            target_user=target,
+                            tipo=tipo_red,
+                            limite=limite,
+                            usar_json_existente=usar_json,
+                            headless=True,
+                            log_fn=registrar_log
+                        )
+                        registrar_log(f"[OK] Análisis Benford completado con éxito para @{target}!")
+                    except Exception as err:
+                        registrar_log(f"[ERROR] Error en Análisis Benford: {err}")
+
+                threading.Thread(target=hilo_benford, daemon=True).start()
+                self.enviar_json({"ok": True, "mensaje": f"Análisis Benford iniciado para @{target} ({tipo_red})"})
+            except Exception as e:
+                self.enviar_json({"error": str(e)}, status=500)
             return
 
         self.send_response(404)
@@ -1808,6 +1900,9 @@ HTML_PAGE = """<!DOCTYPE html>
                 <button class="tab-btn" onclick="cambiarTab('tabBigFive', this)" style="color: #d8b4fe; border-color: rgba(168,85,247,0.3);">
                   Psicología Big Five (IA)
                 </button>
+                <button class="tab-btn" onclick="cambiarTab('tabBenford', this)" style="color: #60a5fa; border-color: rgba(37,99,235,0.35);">
+                  Ley de Benford (Bots)
+                </button>
                 <button class="tab-btn" onclick="cambiarTab('tabSeguidores', this)">
                   Seguidores (<span id="tabCountFollowers">0</span>)
                 </button>
@@ -1830,6 +1925,51 @@ HTML_PAGE = """<!DOCTYPE html>
               <!-- Contenido Tab Big Five (OCEAN) -->
               <div id="tabBigFive" class="tab-pane">
                 <div id="bigfiveContent"></div>
+              </div>
+
+              <!-- Contenido Tab Benford (Detección de Bots y Cuentas Falsas) -->
+              <div id="tabBenford" class="tab-pane">
+                <div id="benfordContent">
+                  <div class="card" style="margin-bottom: 16px; background: rgba(30, 58, 138, 0.1); border: 1px solid rgba(59, 130, 246, 0.3);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
+                      <div>
+                        <h3 style="color: #93c5fd; font-size: 1.15rem; margin-bottom: 4px;">Detección de Bots: Ley de Benford</h3>
+                        <p style="color: var(--text-muted); font-size: 0.82rem;">Comprueba si los seguidores son reales o cuentas falsas comparando sus números con la Ley de Benford.</p>
+                      </div>
+                      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="btn btn-secondary btn-sm" onclick="abrirCarpetaBenford()">Abrir Carpeta</button>
+                        <button class="btn btn-secondary btn-sm" onclick="descargarExcelBenford()">Descargar Excel (.xlsx)</button>
+                      </div>
+                    </div>
+
+                    <!-- Controles de ejecución de Benford -->
+                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: rgba(15, 23, 42, 0.6); padding: 12px 16px; border-radius: var(--radius-sm);">
+                      <label style="font-size: 0.85rem; color: #cbd5e1; font-weight: 600;">Grupo a revisar:</label>
+                      <select id="selectTipoBenford" class="form-input" style="width: auto; padding: 6px 12px; font-size: 0.82rem;" onchange="recargarBenford()">
+                        <option value="seguidores" selected>Seguidores (Followers)</option>
+                        <option value="seguidos">Seguidos (Following)</option>
+                      </select>
+
+                      <label style="font-size: 0.85rem; color: #cbd5e1; font-weight: 600; margin-left: 10px;">Cantidad:</label>
+                      <select id="selectLimiteBenford" class="form-input" style="width: auto; padding: 6px 12px; font-size: 0.82rem;">
+                        <option value="0" selected>Todos los disponibles</option>
+                        <option value="50">50 perfiles (Rápido)</option>
+                        <option value="100">100 perfiles</option>
+                        <option value="200">200 perfiles (Recomendado)</option>
+                        <option value="300">300 perfiles</option>
+                      </select>
+
+                      <button class="btn btn-gradient btn-sm" onclick="ejecutarAnalisisBenfordFrontend()" style="margin-left: auto;">
+                        Analizar Seguidores (Detectar Bots)
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Contenedor dinámico de resultados Benford -->
+                  <div id="benfordResultadosContainer">
+                    <small style="color: var(--text-dim);">Cargando análisis de Benford...</small>
+                  </div>
+                </div>
               </div>
 
               <!-- Contenido Tab 2: Seguidores -->
@@ -2347,6 +2487,12 @@ HTML_PAGE = """<!DOCTYPE html>
       document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
       document.getElementById(tabId).classList.add("active");
       btn.classList.add("active");
+
+      if (tabId === "tabBenford") {
+        const sel = document.getElementById("selectTipoBenford");
+        const tipo = sel ? sel.value : "seguidores";
+        cargarBenfordTab(usuarioActual, tipo);
+      }
     }
 
     // Iniciar extracción
@@ -2415,7 +2561,7 @@ HTML_PAGE = """<!DOCTYPE html>
           const term = document.getElementById("terminalLogs");
           term.innerHTML = (data.logs || []).map(l => {
             let cls = "log-line";
-            if (l.includes("[OK]") || l.includes("EXITO") || l.includes("COMPLETADO")) cls += " log-success";
+            if (l.includes("[OK]") || l.includes("EXITO") || l.includes("ÉXITO") || l.includes("COMPLETADO")) cls += " log-success";
             else if (l.includes("[!]") || l.includes("Aviso") || l.includes("[AVISO]")) cls += " log-warn";
             else if (l.includes("[ERROR]")) cls += " log-error";
             else if (l.includes("[*]") || l.includes("[INFO]")) cls += " log-info";
@@ -2502,6 +2648,242 @@ HTML_PAGE = """<!DOCTYPE html>
         }
       } catch (err) {
         alert("No se pudo abrir la carpeta 'Análisis BigFive'.");
+      }
+    }
+
+    // ========================================================
+    // Módulo Frontend: Ley de Benford (Detección de Bots)
+    // ========================================================
+    function recargarBenford() {
+      const sel = document.getElementById("selectTipoBenford");
+      const tipo = sel ? sel.value : "seguidores";
+      cargarBenfordTab(usuarioActual, tipo);
+    }
+
+    async function cargarBenfordTab(usuario, tipo = "seguidores") {
+      const u = usuario || usuarioActual || document.getElementById("inputUsuario").value.trim().replace(/^@/, "");
+      const container = document.getElementById("benfordResultadosContainer");
+      if (!u) {
+        container.innerHTML = '<div class="empty-state"><p>Ingresa un usuario o selecciona un perfil guardado.</p></div>';
+        return;
+      }
+
+      container.innerHTML = '<div style="text-align: center; padding: 30px;"><div class="spinner" style="margin: 0 auto 10px;"></div><p style="color: var(--text-muted);">Consultando análisis Benford...</p></div>';
+
+      try {
+        const res = await fetch(`/api/benford?usuario=${encodeURIComponent(u)}&tipo=${encodeURIComponent(tipo)}`);
+        if (!res.ok) {
+          container.innerHTML = `
+            <div class="empty-state">
+              <h4 style="color: #fff; margin-bottom: 8px;">No hay análisis Benford previo para @${u} (${tipo})</h4>
+              <p style="margin-bottom: 16px;">Haz clic en "Analizar Seguidores" para revisar la distribución de los números y detectar posibles cuentas falsas.</p>
+              <button class="btn btn-gradient btn-sm" onclick="ejecutarAnalisisBenfordFrontend()">
+                Iniciar Análisis Ahora
+              </button>
+            </div>
+          `;
+          return;
+        }
+        const data = await res.json();
+        renderizarResultadoBenford(data, u, tipo);
+      } catch (err) {
+        container.innerHTML = `<div class="empty-state"><p style="color: #f87171;">Error al cargar análisis: ${err.message}</p></div>`;
+      }
+    }
+
+    function renderizarResultadoBenford(data, usuario, tipo) {
+      const container = document.getElementById("benfordResultadosContainer");
+      const st = data.estadisticas || {};
+
+      const esOrg = st.es_organico;
+      const bgCard = esOrg ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)";
+      const borderCard = esOrg ? "rgba(16, 185, 129, 0.35)" : "rgba(239, 68, 68, 0.35)";
+      const colorTxt = esOrg ? "#34d399" : "#f87171";
+
+      // Filas de la tabla de frecuencias
+      const digitos = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+      let filasHtml = "";
+      digitos.forEach(d => {
+        const obs = (st.conteo_digitos || {})[d] || 0;
+        const pctObs = ((st.porcentaje_observado || {})[d] || 0).toFixed(1);
+        const pctBen = ((st.porcentaje_benford || {})[d] || 0).toFixed(1);
+        const esp = ((st.esperado_conteo || {})[d] || 0).toFixed(1);
+        const chiP = ((st.chi2_por_digito || {})[d] || 0).toFixed(3);
+
+        filasHtml += `
+          <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <td style="padding: 8px 12px; text-align: center; font-weight: bold; color: #93c5fd;">Dígito ${d}</td>
+            <td style="padding: 8px 12px; text-align: right; color: #fff;">${obs}</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold; color: #60a5fa;">${pctObs}%</td>
+            <td style="padding: 8px 12px; text-align: right; color: #f87171;">${pctBen}%</td>
+            <td style="padding: 8px 12px; text-align: right; color: #cbd5e1;">${esp}</td>
+            <td style="padding: 8px 12px; text-align: right; font-family: monospace; color: #e2e8f0;">${chiP}</td>
+          </tr>
+        `;
+      });
+
+      container.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          
+          <!-- Tarjeta de Veredicto -->
+          <div style="background: ${bgCard}; border: 1px solid ${borderCard}; border-radius: var(--radius-md); padding: 18px 22px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
+              <div style="font-size: 1.15rem; font-weight: 700; color: #fff; letter-spacing: 0.3px;">
+                <span>${st.veredicto || 'Diagnóstico de Benford'}</span>
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <span class="badge-ocean" style="background: rgba(255,255,255,0.08); color: ${colorTxt}; font-weight: bold;">
+                  ${st.total_validos || 0} perfiles válidos (followers > 0)
+                </span>
+                ${st.total_ceros ? `<span class="badge-ocean" style="background: rgba(255,255,255,0.05); color: #94a3b8;" title="El número 0 no tiene primer dígito en el dominio de Benford (1-9)">${st.total_ceros} con 0 seguidores</span>` : ''}
+                ${st.total_sin_datos ? `<span class="badge-ocean" style="background: rgba(255,255,255,0.05); color: #94a3b8;" title="Cuentas privadas o sin contador visible">${st.total_sin_datos} sin datos</span>` : ''}
+              </div>
+            </div>
+            <p style="font-size: 0.88rem; color: #e2e8f0; line-height: 1.45; margin-bottom: 14px;">
+              ${st.explicacion || ''}
+            </p>
+
+            <!-- Grid de métricas numéricas -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;">
+              <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; text-align: center;">
+                <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: bold;">Chi-Cuadrado (χ²)</div>
+                <div style="font-size: 1.15rem; font-weight: bold; color: #60a5fa; font-family: monospace;">${(st.chi2_total || 0).toFixed(2)}</div>
+                <div style="font-size: 0.68rem; color: var(--text-dim);">Crítico: ${st.valor_critico_95 || 15.51}</div>
+              </div>
+              <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; text-align: center;">
+                <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: bold;">p-valor</div>
+                <div style="font-size: 1.15rem; font-weight: bold; color: ${esOrg ? '#34d399' : '#f87171'}; font-family: monospace;">${(st.p_valor || 0).toFixed(4)}</div>
+                <div style="font-size: 0.68rem; color: var(--text-dim);">Umbral α = 0.05</div>
+              </div>
+              <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; text-align: center;">
+                <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: bold;">Distancia MAD</div>
+                <div style="font-size: 1.15rem; font-weight: bold; color: #fbbf24; font-family: monospace;">${(st.distancia_mad || 0).toFixed(2)}%</div>
+                <div style="font-size: 0.68rem; color: var(--text-dim);">&lt; 1.8% Aceptable</div>
+              </div>
+              <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; text-align: center;">
+                <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: bold;">Grados de Libertad</div>
+                <div style="font-size: 1.15rem; font-weight: bold; color: #cbd5e1; font-family: monospace;">${st.grados_libertad || 8}</div>
+                <div style="font-size: 0.68rem; color: var(--text-dim);">df = k - 1</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Gráfico Comparativo Superpuesto -->
+          <div class="card" style="padding: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <h4 style="color: #fff; font-size: 0.95rem;">Gráfico Comparativo: Barras y Líneas (Azul = Real vs. Rojo = Benford)</h4>
+              <a href="/api/benford_chart?usuario=${encodeURIComponent(usuario)}&tipo=${encodeURIComponent(tipo)}" target="_blank" class="btn btn-secondary btn-sm">
+                Ver en HD ↗
+              </a>
+            </div>
+            <div style="text-align: center; background: #0b0f19; border-radius: 8px; padding: 10px; border: 1px solid rgba(255,255,255,0.08);">
+              <img src="/api/benford_chart?usuario=${encodeURIComponent(usuario)}&tipo=${encodeURIComponent(tipo)}&t=${Date.now()}" 
+                   alt="Gráfico Ley de Benford" 
+                   style="max-width: 100%; height: auto; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.4);"
+                   onerror="this.parentElement.innerHTML='<p style=\\'padding:20px;color:var(--text-dim);\\'>Gráfico aún no generado. Haz clic en Analizar Seguidores.</p>'">
+            </div>
+          </div>
+
+          <!-- Tabla de Frecuencias de Benford -->
+          <div class="card" style="padding: 16px; overflow-x: auto;">
+            <h4 style="color: #fff; font-size: 0.95rem; margin-bottom: 12px;">Tabla Detallada de Frecuencias del Primer Dígito</h4>
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+              <thead>
+                <tr style="background: rgba(30, 58, 138, 0.4); border-bottom: 2px solid rgba(59, 130, 246, 0.4);">
+                  <th style="padding: 10px 12px; text-align: center; color: #93c5fd;">Dígito (d)</th>
+                  <th style="padding: 10px 12px; text-align: right; color: #fff;">Conteo Observado (O)</th>
+                  <th style="padding: 10px 12px; text-align: right; color: #60a5fa;">Frecuencia Real (%)</th>
+                  <th style="padding: 10px 12px; text-align: right; color: #f87171;">Esperado Benford (%)</th>
+                  <th style="padding: 10px 12px; text-align: right; color: #cbd5e1;">Conteo Esperado (E)</th>
+                  <th style="padding: 10px 12px; text-align: right; color: #e2e8f0;">(O - E)² / E</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${filasHtml}
+              </tbody>
+              <tfoot>
+                <tr style="background: rgba(30, 58, 138, 0.25); font-weight: bold; border-top: 2px solid rgba(59, 130, 246, 0.4);">
+                  <td style="padding: 10px 12px; text-align: center; color: #fff;">TOTAL</td>
+                  <td style="padding: 10px 12px; text-align: right; color: #fff;">${st.total_validos || 0}</td>
+                  <td style="padding: 10px 12px; text-align: right; color: #60a5fa;">100.0%</td>
+                  <td style="padding: 10px 12px; text-align: right; color: #f87171;">100.0%</td>
+                  <td style="padding: 10px 12px; text-align: right; color: #cbd5e1;">${(st.total_validos || 0).toFixed(1)}</td>
+                  <td style="padding: 10px 12px; text-align: right; font-family: monospace; color: #38bdf8;">${(st.chi2_total || 0).toFixed(3)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+        </div>
+      `;
+    }
+
+    async function ejecutarAnalisisBenfordFrontend() {
+      const u = usuarioActual || document.getElementById("inputUsuario").value.trim().replace(/^@/, "");
+      if (!u) {
+        alert("Por favor ingresa un nombre de usuario.");
+        return;
+      }
+
+      const tipo = document.getElementById("selectTipoBenford").value;
+      const limiteVal = document.getElementById("selectLimiteBenford").value;
+      const limite = isNaN(parseInt(limiteVal, 10)) ? 0 : parseInt(limiteVal, 10);
+
+      // Iniciar terminal de logs
+      document.getElementById("terminalCard").style.display = "block";
+      document.getElementById("logStatusText").innerText = "ANALIZANDO SEGUIDORES (BENFORD)...";
+      document.getElementById("logStatusText").style.color = "#60a5fa";
+
+      try {
+        const res = await fetch("/api/ejecutar_benford", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ usuario: u, tipo: tipo, limite: limite, from_json: true })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "No se pudo iniciar el análisis");
+
+        iniciarPollingLogs();
+
+        // Tras iniciar, consultar periódicamente si terminó para refrescar la pestaña
+        const checkTimer = setInterval(async () => {
+          try {
+            const checkRes = await fetch(`/api/benford?usuario=${encodeURIComponent(u)}&tipo=${encodeURIComponent(tipo)}`);
+            if (checkRes.ok) {
+              const benfordData = await checkRes.json();
+              renderizarResultadoBenford(benfordData, u, tipo);
+              clearInterval(checkTimer);
+            }
+          } catch (_) {}
+        }, 3500);
+
+      } catch (err) {
+        alert("Error al iniciar análisis Benford: " + err.message);
+      }
+    }
+
+    function descargarExcelBenford() {
+      const u = usuarioActual || document.getElementById("inputUsuario").value.trim().replace(/^@/, "");
+      const sel = document.getElementById("selectTipoBenford");
+      const tipo = sel ? sel.value : "seguidores";
+      if (!u) {
+        alert("No hay un usuario seleccionado.");
+        return;
+      }
+      window.location.href = `/api/download_benford_excel?usuario=${encodeURIComponent(u)}&tipo=${encodeURIComponent(tipo)}`;
+    }
+
+    async function abrirCarpetaBenford() {
+      try {
+        const res = await fetch(`/api/open_folder?tipo=benford`);
+        const data = await res.json();
+        if (data.ok) {
+          alert(`Carpeta 'Análisis Benford' abierta:\n${data.ruta}`);
+        } else {
+          alert("Error: " + data.error);
+        }
+      } catch (err) {
+        alert("No se pudo abrir la carpeta 'Análisis Benford'.");
       }
     }
   </script>

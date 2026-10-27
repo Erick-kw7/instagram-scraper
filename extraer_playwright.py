@@ -1,6 +1,7 @@
+#!/usr/bin/env python3
 """
 =============================================================================
-INSTAGRAM SCRAPER  (PLAYWRIGHT)
+INSTAGRAM SCRAPER DEFINITIVO (PLAYWRIGHT)
 =============================================================================
 Script único y consolidado para la extracción de perfiles de Instagram:
 1. Información del Perfil: Bio, nombre, conteos oficiales (posts, seguidores, seguidos).
@@ -212,26 +213,23 @@ JS_EXTRAER_USUARIOS_DIALOG = """() => {
     return results;
 }"""
 
-# Scroll hacia abajo dentro del modal de seguidores / seguidos
-JS_SCROLL_DIALOG = """() => {
+# Scroll progresivo y natural dentro del modal de seguidores / seguidos
+JS_SCROLL_DIALOG = """(offset = 750) => {
     const dialog = document.querySelector('div[role="dialog"]');
-    if (!dialog) return {scrolled: false, error: 'no_dialog'};
+    if (!dialog) return false;
     
+    let scrolled = false;
     const all = dialog.querySelectorAll('*');
     for (const el of all) {
         const style = window.getComputedStyle(el);
         if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
-            const before = el.scrollTop;
-            el.scrollTop = el.scrollHeight;
-            return {
-                scrolled: true,
-                before: before,
-                now: el.scrollTop,
-                max: el.scrollHeight - el.clientHeight
-            };
+            el.scrollBy({ top: offset, behavior: 'smooth' });
+            el.dispatchEvent(new Event('scroll', { bubbles: true }));
+            scrolled = true;
+            break;
         }
     }
-    return {scrolled: false, error: 'no_scrollable_container'};
+    return scrolled;
 }"""
 
 # Extracción de datos detallados de la publicación actual en el modal
@@ -474,7 +472,7 @@ JS_EXTRAER_DATOS_POST = r"""() => {
 # ============================================================
 # Funciones Auxiliares de Parseo
 # ============================================================
-def a_numero(txt: str) -> int | None:
+def texto_a_entero(txt: str) -> int | None:
     """Convierte cadenas como '1,234', '1.2M', '15 mil' a enteros."""
     if not txt:
         return None
@@ -489,14 +487,14 @@ def a_numero(txt: str) -> int | None:
     return int(re.sub(r"[.,]", "", cuerpo))
 
 
-def parsear_og(texto: str | None) -> dict:
+def extraer_conteos_og(texto: str | None) -> dict:
     salida = {"seguidores": None, "seguidos": None, "total_publicaciones": None, "biografia": None}
     if not texto:
         return salida
     m = RE_CONTEOS.search(texto)
     if m:
         salida["seguidores"], salida["seguidos"], salida["total_publicaciones"] = (
-            a_numero(g) for g in m.groups()
+            texto_a_entero(g) for g in m.groups()
         )
     b = RE_BIO_OG.search(texto)
     if b:
@@ -504,11 +502,11 @@ def parsear_og(texto: str | None) -> dict:
     return salida
 
 
-def conteos_desde_cabecera(texto: str | None) -> dict:
+def conteos_de_cabecera(texto: str | None) -> dict:
     t = texto or ""
     def buscar(palabras: str) -> int | None:
         m = re.search(rf"{_NUM}\s+(?:{palabras})\b", t, re.IGNORECASE)
-        return a_numero(m.group(1)) if m else None
+        return texto_a_entero(m.group(1)) if m else None
     return {
         "seguidores": buscar("followers|seguidores"),
         "seguidos": buscar("following|seguidos|siguiendo"),
@@ -516,7 +514,7 @@ def conteos_desde_cabecera(texto: str | None) -> dict:
     }
 
 
-def nombre_y_bio_desde_cabecera(texto: str | None, usuario: str) -> tuple[str | None, str | None]:
+def nombre_y_bio(texto: str | None, usuario: str) -> tuple[str | None, str | None]:
     lineas = [l.strip() for l in (texto or "").splitlines() if l.strip()]
     resto = [
         l for l in lineas
@@ -591,33 +589,63 @@ def extraer_lista_modal(page, selector_or_locator, titulo: str, modo_auto: bool 
             usuarios_dict[u["usuario"]] = u
             
     else:
-        # Modo automático: scroll progresivo con pausas naturales
-        log_fn(f"[*] Auto-scroll activo para {titulo} (máximo {max_items} o fin de lista)...")
+        # Modo automático: scroll progresivo inteligente con desbloqueo multinivel
+        log_fn(f"[*] Auto-scroll activo para {titulo} (máximo {max_items or 'todos'} o fin de lista)...")
         sin_cambios = 0
         ultimo_total = 0
-        
-        for paso in range(60):
+
+        for paso in range(600):
             usuarios = page.evaluate(JS_EXTRAER_USUARIOS_DIALOG)
             for u in usuarios:
                 usuarios_dict[u["usuario"]] = u
-            
+
             log_fn(f"    Paso {paso + 1}: {len(usuarios_dict)} usuarios detectados")
-            
-            if len(usuarios_dict) >= max_items:
+
+            if max_items and max_items > 0 and len(usuarios_dict) >= max_items:
                 log_fn(f"    Llegamos al límite configurado de {max_items}.")
                 break
-                
+
             if len(usuarios_dict) == ultimo_total:
                 sin_cambios += 1
-                if sin_cambios >= 5:
+                if sin_cambios == 3:
+                    # Desbloqueo Nivel 1: Rebote suave hacia arriba y reactivación
+                    page.evaluate(JS_SCROLL_DIALOG, -350)
+                    page.wait_for_timeout(1000)
+                    page.evaluate(JS_SCROLL_DIALOG, 700)
+                    page.wait_for_timeout(2500)
+                elif sin_cambios == 6:
+                    # Desbloqueo Nivel 2: Rueda de ratón nativa de Playwright sobre el diálogo
+                    try:
+                        box = dialog.bounding_box()
+                        if box:
+                            page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                            page.mouse.wheel(0, 850)
+                    except Exception:
+                        pass
+                    page.wait_for_timeout(3000)
+                elif sin_cambios == 10:
+                    # Desbloqueo Nivel 3: Tecla PageDown dentro del diálogo modal
+                    try:
+                        dialog.focus()
+                        page.keyboard.press("PageDown")
+                    except Exception:
+                        pass
+                    page.wait_for_timeout(3500)
+                elif sin_cambios == 14:
+                    # Desbloqueo Nivel 4: Pausa de refresco por throttling de Meta
+                    log_fn("    Sincronizando con Instagram...")
+                    page.wait_for_timeout(5000)
+                    page.evaluate(JS_SCROLL_DIALOG, 600)
+                elif sin_cambios >= 20:
                     log_fn("    Fin de la lista alcanzado.")
                     break
             else:
                 sin_cambios = 0
+
             ultimo_total = len(usuarios_dict)
-            
-            page.evaluate(JS_SCROLL_DIALOG)
-            page.wait_for_timeout(random.randint(1800, 3000))
+
+            page.evaluate(JS_SCROLL_DIALOG, 750)
+            page.wait_for_timeout(random.randint(1800, 2600))
 
     # Cerrar diálogo modal
     try:
@@ -641,23 +669,35 @@ def extraer_publicaciones_completas(page, context, target: str, max_posts: int =
     """
     log_fn(f"\n[*] Extrayendo publicaciones detalladas y descargando multimedia (hasta {max_posts})...")
     
-    # Crear carpeta para descargas de este usuario
-    descargas_dir = BASE / f"descargas_{target}"
+    # Crear carpeta para descargas dentro de 'Descargas Multimedia'
+    descargas_dir = DIR_MEDIA / f"descargas_{target}"
     if descargar:
         descargas_dir.mkdir(parents=True, exist_ok=True)
-        log_fn(f"    Carpeta de descargas: {descargas_dir.name}/")
+        log_fn(f"    Carpeta de descargas: {descargas_dir.relative_to(BASE)}/")
 
-    # Localizar primera publicación en la cuadrícula
-    primer_post = page.locator('a[href*="/p/"], a[href*="/reel/"]').first
-    tiene_posts_feed = primer_post.count() > 0
+    # Esperar a que la cuadrícula de publicaciones cargue en el DOM
+    tiene_posts_feed = False
+    try:
+        page.wait_for_selector('a[href*="/p/"], a[href*="/reel/"]', timeout=8000)
+        tiene_posts_feed = True
+    except Exception:
+        # Si aún no cargó en el viewport, hacer un scroll suave para activar el renderizado de React
+        try:
+            page.evaluate("window.scrollBy(0, 450)")
+            page.wait_for_timeout(2000)
+            page.wait_for_selector('a[href*="/p/"], a[href*="/reel/"]', timeout=6000)
+            tiene_posts_feed = True
+        except Exception:
+            tiene_posts_feed = False
 
     posts_extraidos = []
     urls_vistas = set()
 
-    if tiene_posts_feed:
+    primer_post = page.locator('a[href*="/p/"], a[href*="/reel/"]').first
+    if tiene_posts_feed and primer_post.count() > 0:
         try:
             primer_post.click()
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(3500)
         except Exception as e:
             log_fn(f"[!] Error al abrir primera publicación del feed: {e}")
             tiene_posts_feed = False
@@ -665,14 +705,26 @@ def extraer_publicaciones_completas(page, context, target: str, max_posts: int =
     if tiene_posts_feed:
         for idx in range(max_posts):
             curr_url = page.url
-            if curr_url in urls_vistas:
-                log_fn("    Llegamos al final de las publicaciones del feed principal.")
-                break
-            urls_vistas.add(curr_url)
-
             # Extraer shortcode de la URL
             match_sc = re.search(r"/(p|reel)/([^/?#]+)", curr_url)
             shortcode = match_sc.group(2) if match_sc else f"post_{idx+1}"
+
+            if shortcode in urls_vistas:
+                # Intentar avanzar haciendo clic en el botón siguiente o esperar un momento
+                btn_next = page.locator('svg[aria-label="Siguiente"], svg[aria-label="Next"]').first
+                if btn_next.count() > 0:
+                    try:
+                        btn_next.click()
+                        page.wait_for_timeout(2000)
+                        curr_url = page.url
+                        match_sc = re.search(r"/(p|reel)/([^/?#]+)", curr_url)
+                        shortcode = match_sc.group(2) if match_sc else f"post_{idx+1}"
+                    except Exception:
+                        pass
+                if shortcode in urls_vistas:
+                    log_fn("    Llegamos al final de las publicaciones del feed principal.")
+                    break
+            urls_vistas.add(shortcode)
 
             # Extraer datos del DOM del post actual
             datos = page.evaluate(JS_EXTRAER_DATOS_POST) or {}
@@ -709,7 +761,7 @@ def extraer_publicaciones_completas(page, context, target: str, max_posts: int =
                             resp = context.request.get(clean_v_url, timeout=35000)
                             if resp.ok and len(resp.body()) > 15000:
                                 dest.write_bytes(resp.body())
-                                archivos_locales.append(str(dest.relative_to(BASE)))
+                                archivos_locales.append(dest.relative_to(BASE).as_posix())
                                 log_fn(f"      [OK] Video MP4 descargado: {filename} ({dest.stat().st_size // 1024} KB)")
                                 break
                         except Exception as err:
@@ -723,7 +775,7 @@ def extraer_publicaciones_completas(page, context, target: str, max_posts: int =
                         resp = context.request.get(img_url, timeout=30000)
                         if resp.ok:
                             dest.write_bytes(resp.body())
-                            archivos_locales.append(str(dest.relative_to(BASE)))
+                            archivos_locales.append(dest.relative_to(BASE).as_posix())
                             log_fn(f"      [OK] Imagen descargada: {filename} ({dest.stat().st_size // 1024} KB)")
                     except Exception as err:
                         log_fn(f"      [!] Error descargando imagen {img_url[:30]}: {err}")
@@ -800,7 +852,7 @@ def extraer_publicaciones_completas(page, context, target: str, max_posts: int =
                                 resp = context.request.get(clean_v_url, timeout=35000)
                                 if resp.ok and len(resp.body()) > 15000:
                                     dest.write_bytes(resp.body())
-                                    archivos_locales.append(str(dest.relative_to(BASE)))
+                                    archivos_locales.append(dest.relative_to(BASE).as_posix())
                                     log_fn(f"      [OK] Reel MP4 descargado exitosamente: {filename} ({dest.stat().st_size // 1024} KB)")
                                     break
                             except Exception as err:
@@ -814,7 +866,7 @@ def extraer_publicaciones_completas(page, context, target: str, max_posts: int =
                                 resp = context.request.get(img_url, timeout=25000)
                                 if resp.ok:
                                     dest.write_bytes(resp.body())
-                                    archivos_locales.append(str(dest.relative_to(BASE)))
+                                    archivos_locales.append(dest.relative_to(BASE).as_posix())
                             except Exception:
                                 pass
 
@@ -952,9 +1004,9 @@ def extraer_perfil_completo(
             except Exception:
                 header_text = None
 
-            datos_og = parsear_og(og_desc)
-            datos_cab = conteos_desde_cabecera(header_text)
-            nombre_v, bio_v = nombre_y_bio_desde_cabecera(header_text, target)
+            datos_og = extraer_conteos_og(og_desc)
+            datos_cab = conteos_de_cabecera(header_text)
+            nombre_v, bio_v = nombre_y_bio(header_text, target)
 
             seguidores_count = datos_cab["seguidores"] or datos_og["seguidores"]
             seguidos_count = datos_cab["seguidos"] or datos_og["seguidos"]

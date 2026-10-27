@@ -1,7 +1,7 @@
 {
   "usuario": "usuario_ejemplo",
   "nombre_completo": "Nombre Demostrativo",
-  "biografia": "Biografía de ejemplo para documentación técnica 🚀",
+  "biografia": "Biografia de ejemplo para documentacion tecnica.",
   "avatar_url": "https://instagram.../avatar.jpg",
   "es_privado": false,
   "es_verificado": false,
@@ -16,14 +16,14 @@
       "shortcode": "C_Ejemplo01",
       "url": "https://www.instagram.com/p/C_Ejemplo01/",
       "tipo": "carrusel",
-      "descripcion": "Descripción del post demostrativo #ejemplo",
+      "descripcion": "Descripcion del post demostrativo #ejemplo",
       "likes": 45,
       "likes_ocultos": false,
       "likes_texto": "45 Me gusta",
       "comentarios": 3,
       "comentarios_desactivados": false,
       "comentarios_muestra": [
-        "usuario_fan ¡Excelente foto!"
+        "usuario_fan Excelente foto"
       ],
       "fecha": "2026-10-15T18:30:00.000Z",
       "media_urls": [
@@ -31,8 +31,8 @@
         "https://instagram.../foto_2.jpg"
       ],
       "archivos_descargados": [
-        "descargas_usuario_ejemplo/C_Ejemplo01_0.jpg",
-        "descargas_usuario_ejemplo/C_Ejemplo01_1.jpg"
+        "Descargas Multimedia/descargas_usuario_ejemplo/C_Ejemplo01_0.jpg",
+        "Descargas Multimedia/descargas_usuario_ejemplo/C_Ejemplo01_1.jpg"
       ]
     },
     {
@@ -51,7 +51,7 @@
         "https://instagram.../video.mp4"
       ],
       "archivos_descargados": [
-        "descargas_usuario_ejemplo/C_Reel02.mp4"
+        "Descargas Multimedia/descargas_usuario_ejemplo/C_Reel02.mp4"
       ]
     }
   ],

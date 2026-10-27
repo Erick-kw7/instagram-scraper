@@ -16,12 +16,11 @@ env/
 
 # Datos extraídos y descargas multimedia de perfiles
 datos_*.json
-analisis_bigfive_*.json
+analisis_*.json
 descargas_*/
-Datos Extraidos/
-Datos Extraídos/
-Análisis BigFive/
-Analisis BigFive/
+*Datos Extra*dos/
+*An*lisis BigFive/
+*An*lisis Benford/
 Descargas Multimedia/
 *.prev.json
 
